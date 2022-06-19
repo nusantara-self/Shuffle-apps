@@ -19,7 +19,7 @@ class Recordedfuture(AppBase):
         """
         super().__init__(redis, logger, console_logger)
 
-    async def get_alerts(self, apikey, status="", limit=10):
+    def get_alerts(self, apikey, status="", limit=10):
         url = "https://api.recordedfuture.com/v2/alert/search?limit=%s" % limit
         if status:
             url = "%s&status=%s" % (url, status)
@@ -30,7 +30,7 @@ class Recordedfuture(AppBase):
 
         return requests.get(url, headers=parsed_headers).text
 
-    async def get_alert(self, apikey, id):
+    def get_alert(self, apikey, id):
         url = "https://api.recordedfuture.com/v2/alert/%s" % id 
         parsed_headers = {
             'X-RFToken': apikey,
@@ -48,10 +48,10 @@ def run(request):
     current_execution_id = action.get("execution_id")
 	
     if action and "name" in action and "app_name" in action:
-        asyncio.run(Recordedfuture.run(action), debug=True)
+        Recordedfuture.run(action)
         return f'Attempting to execute function {action["name"]} in app {action["app_name"]}' 
     else:
         return f'Invalid action'
 
 if __name__ == "__main__":
-    asyncio.run(Recordedfuture.run(), debug=True)
+    Recordedfuture.run()

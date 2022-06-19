@@ -19,10 +19,11 @@ class ADLDAP(AppBase):
         super().__init__(redis, logger, console_logger)
 
     # Write your data inside this function
-    async def search_samaccountname(self, domain_name, server_name, user_name, password, samaccountname, search_base, port, use_ssl):
+    def search_samaccountname(self, domain_name, server_name, user_name, password, samaccountname, search_base, port, use_ssl):
 
         user = '{}\\{}'.format(domain_name, user_name)
         port = int(port)
+        use_ssl = False if use_ssl.lower() == "false" else True
 
         conn = Connection(Server(server_name, port=port, use_ssl=use_ssl), auto_bind=AUTO_BIND_NO_TLS, user=user, password=password)
 
@@ -39,4 +40,4 @@ class ADLDAP(AppBase):
         return json.loads(conn.response_to_json())['entries']
 
 if __name__ == "__main__":
-    asyncio.run(ADLDAP.run(), debug=True)
+    ADLDAP.run()

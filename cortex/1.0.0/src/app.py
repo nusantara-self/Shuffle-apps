@@ -23,7 +23,7 @@ class Cortex(AppBase):
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
         super().__init__(redis, logger, console_logger)
 
-    async def get_available_analyzers(self, apikey, url, datatype):
+    def get_available_analyzers(self, apikey, url, datatype):
         self.api = Api(url, apikey, cert=False)
         try:
             analyzers = self.api.analyzers.find_all({}, range='all')
@@ -46,12 +46,20 @@ class Cortex(AppBase):
 
         return all_results
 
-    async def run_available_analyzers(self, apikey, url, data, datatype, message="", tlp=1):
+    def run_available_analyzers(self, apikey, url, data, datatype, message="", tlp=1, force="true"):
         if data == "" or data == "[]":
-            return "No values to handle []"
+            return {
+                "success": False,
+                "reason": "No values to handle []",
+            }
+
+        if str(force.lower()) == "true":
+            force = 1
+        else:
+            force = 0
 
         self.api = Api(url, apikey, cert=False)
-        analyzers = await self.get_available_analyzers(apikey, url, datatype)
+        analyzers = self.get_available_analyzers(apikey, url, datatype)
 
         alljobs = []
         for analyzer in analyzers:
@@ -61,7 +69,7 @@ class Cortex(AppBase):
                     'dataType': datatype,
                     'tlp': tlp,
                     'message': message,
-                }, force=1)
+                }, force=force)
 
                 alljobs.append(job.id)
             except cortex4py.exceptions.ServiceUnavailableError as e:
@@ -75,7 +83,12 @@ class Cortex(AppBase):
         #    return alljobs[0]
         return alljobs
 
-    async def run_analyzer(self, apikey, url, analyzer_name, data, datatype, message="", tlp=1):
+    def run_analyzer(self, apikey, url, analyzer_name, data, datatype, message="", tlp=1, force="true"):
+        if str(force.lower()) == "true":
+            force = 1
+        else:
+            force = 0
+
         self.api = Api(url, apikey, cert=False)
         try:
             job = self.api.analyzers.run_by_name(analyzer_name, {
@@ -83,7 +96,7 @@ class Cortex(AppBase):
                 'dataType': datatype,
                 'tlp': tlp,
                 'message': message,
-            }, force=1)
+            }, force=force)
         except cortex4py.exceptions.ServiceUnavailableError as e:
             return str(e)
         except cortex4py.exceptions.AuthorizationError as e:
@@ -93,7 +106,7 @@ class Cortex(AppBase):
 
         return job.id
 
-    async def get_analyzer_result(self, url, apikey, result_id):
+    def get_analyzer_result(self, url, apikey, result_id):
         self.api = Api(url, apikey, cert=False)
         try:
             report = self.api.jobs.get_report(result_id).report
@@ -107,4 +120,4 @@ class Cortex(AppBase):
         return report 
 
 if __name__ == "__main__":
-    asyncio.run(Cortex.run(), debug=True)
+    Cortex.run()

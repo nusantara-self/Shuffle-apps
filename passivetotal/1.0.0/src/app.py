@@ -20,7 +20,7 @@ class Passivetotal(AppBase):
         self.headers = {"Content-Type": "application/json"}
         super().__init__(redis, logger, console_logger)
 
-    async def update_project(self, username, apikey, data):
+    def update_project(self, username, apikey, data):
         url = "https://api.passivetotal.org/v2/project"
         auth = (username, apikey)
         print(data)
@@ -33,7 +33,7 @@ class Passivetotal(AppBase):
         else:
             return tags.split(",")
 
-    async def add_artifact(self, username, apikey, project, artifact, tags=""):
+    def add_artifact(self, username, apikey, project, artifact, tags=""):
         url = "https://api.passivetotal.org/v2/artifact"
         auth = (username, apikey)
 
@@ -55,7 +55,7 @@ class Passivetotal(AppBase):
         else:
             return True 
 
-    async def update_artifact(self, username, apikey, artifact_id, monitor=False, tags=""):
+    def update_artifact(self, username, apikey, artifact_id, monitor=False, tags=""):
         url = "https://api.passivetotal.org/v2/artifact"
         auth = (username, apikey)
 
@@ -67,7 +67,7 @@ class Passivetotal(AppBase):
         
         return requests.post(url, headers=self.headers, auth=auth, json=data).text
 
-    async def get_artifact(self, username, apikey, query=""):
+    def get_artifact(self, username, apikey, query=""):
         url = "https://api.passivetotal.org/v2/artifact"
         auth = (username, apikey)
 
@@ -77,7 +77,7 @@ class Passivetotal(AppBase):
         
         return requests.get(url, headers=self.headers, auth=auth, params=params).text
 
-    async def get_alerts(self, username, apikey, project_id="", artifact_id="", start="", end=""):
+    def get_alerts(self, username, apikey, project_id="", artifact_id="", start="", end=""):
         url = "https://api.passivetotal.org/v2/artifact?"
         auth = (username, apikey)
 
@@ -99,10 +99,10 @@ def run(request):
     current_execution_id = action.get("execution_id")
 	
     if action and "name" in action and "app_name" in action:
-        asyncio.run(Passivetotal.run(action), debug=True)
+        Passivetotal.run(action)
         return f'Attempting to execute function {action["name"]} in app {action["app_name"]}' 
     else:
         return f'Invalid action'
 
 if __name__ == "__main__":
-    asyncio.run(Passivetotal.run(), debug=True)
+    Passivetotal.run()

@@ -22,7 +22,7 @@ class AWSEC2(AppBase):
         """
         super().__init__(redis, logger, console_logger)
 
-    async def auth(self, access_key, secret_key, region):
+    def auth(self, access_key, secret_key, region):
         my_config = Config(
             region_name = region,
             signature_version = 'v4',
@@ -40,8 +40,8 @@ class AWSEC2(AppBase):
         )
 
     # Write your data inside this function
-    async def enable_security_hub(self, access_key, secret_key, region):
-        client = await self.auth(access_key, secret_key, region)
+    def enable_security_hub(self, access_key, secret_key, region):
+        client = self.auth(access_key, secret_key, region)
         response = client.enable_security_hub(
             Tags={},
             EnableDefaultStandards=True,
@@ -53,11 +53,13 @@ class AWSEC2(AppBase):
             return response
 
     # Write your data inside this function
-    async def get_findings(self, access_key, secret_key, region, filters):
-        client = await self.auth(access_key, secret_key, region)
+    def get_findings(self, access_key, secret_key, region, filters):
+        client = self.auth(access_key, secret_key, region)
 
         try:
-            filters = json.loads(filters)
+            if not isinstance(filters, list) and not isinstance(filters, object) and not isinstance(filters, dict):
+                filters = json.loads(filters)
+
             response = client.get_findings(Filters=filters)
         except:
             print("Failed to add filters. Couldn't decode JSON")
@@ -71,8 +73,8 @@ class AWSEC2(AppBase):
         return response
 
     # Write your data inside this function
-    async def get_insights(self, access_key, secret_key, region, arn):
-        client = await self.auth(access_key, secret_key, region)
+    def get_insights(self, access_key, secret_key, region, arn):
+        client = self.auth(access_key, secret_key, region)
 
         response = client.get_insights(
             InsightArns=[insight_arn]
@@ -86,8 +88,8 @@ class AWSEC2(AppBase):
         return response
 
     # Write your data inside this function
-    async def update_finding(self, access_key, secret_key, region, id, productArn, status):
-        client = await self.auth(access_key, secret_key, region)
+    def update_finding(self, access_key, secret_key, region, id, productArn, status):
+        client = self.auth(access_key, secret_key, region)
         response = client.batch_update_findings(
             FindingIdentifiers=[
                 {
@@ -108,8 +110,8 @@ class AWSEC2(AppBase):
         return response
 
     # Write your data inside this function
-    async def create_finding(self, access_key, secret_key, region, productArn, id, title, description):
-        client = await self.auth(access_key, secret_key, region)
+    def create_finding(self, access_key, secret_key, region, productArn, id, title, description):
+        client = self.auth(access_key, secret_key, region)
 
         shuffle_id = "SOMETHING_%s" % id
         findings = [{
@@ -133,4 +135,4 @@ class AWSEC2(AppBase):
         response = client.batch_import_findings(Findings=findings)
 
 if __name__ == "__main__":
-    asyncio.run(AWSEC2.run(), debug=True)
+    AWSEC2.run()

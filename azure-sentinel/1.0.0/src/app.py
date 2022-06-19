@@ -22,7 +22,7 @@ class AzureSentinel(AppBase):
         super().__init__(redis, logger, console_logger)
         self.azure_url = "https://management.azure.com"
 
-    async def authenticate(self, tenant_id, client_id, client_secret):
+    def authenticate(self, tenant_id, client_id, client_secret):
 
         self.s = requests.Session()
         auth_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
@@ -47,7 +47,7 @@ class AzureSentinel(AppBase):
         access_token = res.json().get("access_token")
         self.s.headers = {"Authorization": f"Bearer {access_token}", "cache-control": "no-cache"}
 
-    async def extract_entities(self, incident_uri):
+    def extract_entities(self, incident_uri):
 
         entities_url = f"{self.azure_url}{incident_uri}/entities"
         params = {"api-version": "2019-01-01-preview"}
@@ -58,7 +58,7 @@ class AzureSentinel(AppBase):
 
         return res.json().get("entities", [])
 
-    async def extract_comments(self, incident_uri):
+    def extract_comments(self, incident_uri):
 
         comments_url = f"{self.azure_url}{incident_uri}/comments"
         params = {"api-version": "2020-01-01"}
@@ -69,10 +69,10 @@ class AzureSentinel(AppBase):
 
         return res.json().get("value", [])
 
-    async def get_incidents(self, **kwargs):
+    def get_incidents(self, **kwargs):
 
         # Get a client credential access token
-        await self.authenticate(kwargs["tenant_id"], kwargs["client_id"], kwargs["client_secret"])
+        self.authenticate(kwargs["tenant_id"], kwargs["client_id"], kwargs["client_secret"])
 
         incidents_url = f"{self.azure_url}/subscriptions/{kwargs['subscription_id']}/resourceGroups/{kwargs['resource_group_name']}/providers/Microsoft.OperationalInsights/workspaces/{kwargs['workspace_name']}/providers/Microsoft.SecurityInsights/incidents"
         params = {"api-version": "2020-01-01"}
@@ -123,23 +123,23 @@ class AzureSentinel(AppBase):
         if kwargs.get("get_entities", "").lower() == "true":
             for incident in incidents:
                 self.logger.warning(f"Getting entities for {incident['id']}")
-                incident["entities"] = await self.extract_entities(incident["id"])
+                incident["entities"] = self.extract_entities(incident["id"])
 
         # Get incident comments
         if kwargs.get("get_comments", "").lower() == "true":
             for incident in incidents:
                 self.logger.warning(f"Getting entities for {incident['id']}")
-                incident["comments"] = await self.extract_comments(incident["id"])
+                incident["comments"] = self.extract_comments(incident["id"])
 
         return json.dumps(incidents)
 
-    async def get_incident(self, **kwargs):
+    def get_incident(self, **kwargs):
 
         if not kwargs.get("incident_id"):
             return '{"success": false, "error": "No incident ID supplied"}'
 
         # Get a client credential access token
-        auth = await self.authenticate(
+        auth = self.authenticate(
             kwargs["tenant_id"], kwargs["client_id"], kwargs["client_secret"]
         )
 
@@ -153,17 +153,16 @@ class AzureSentinel(AppBase):
 
         # Get incident entities
         if kwargs.get("get_entities", "").lower() == "true":
-            incident["entities"] = await self.extract_entities(incident["id"])
+            incident["entities"] = self.extract_entities(incident["id"])
 
         # Get incident comments
         if kwargs.get("get_comments", "").lower() == "true":
-            incident["comments"] = await self.extract_comments(incident["id"])
+            incident["comments"] = self.extract_comments(incident["id"])
 
         return json.dumps(incident)
 
-    async def close_incident(self, **kwargs):
-
-        incident = json.loads(await self.get_incident(**kwargs))
+    def close_incident(self, **kwargs):
+        incident = json.loads(self.get_incident(**kwargs))
         if "error" in incident:
             return json.dumps(incident)
 
@@ -192,9 +191,8 @@ class AzureSentinel(AppBase):
 
         return res.text
 
-    async def update_incident(self, **kwargs):
-
-        incident = json.loads(await self.get_incident(**kwargs))
+    def update_incident(self, **kwargs):
+        incident = json.loads(self.get_incident(**kwargs))
         if "error" in incident:
             return json.dumps(incident)
 
@@ -223,10 +221,10 @@ class AzureSentinel(AppBase):
 
         return res.text
 
-    async def add_comment(self, **kwargs):
+    def add_comment(self, **kwargs):
 
         # Get a client credential access token
-        auth = await self.authenticate(
+        auth = self.authenticate(
             kwargs["tenant_id"], kwargs["client_id"], kwargs["client_secret"]
         )
         if not auth["success"]:
@@ -244,6 +242,45 @@ class AzureSentinel(AppBase):
 
         return res.text
 
+    def run_query(self, **kwargs):
+        # Get a client credential access token
+        auth = self.authenticate(
+            kwargs["tenant_id"], kwargs["client_id"], kwargs["client_secret"]
+        )
+
+        if not auth["success"]:
+            return {"error": auth["message"]}
+
+        print("Here 0")
+        comment_url = f"{self.azure_url}/subscriptions/{kwargs['subscription_id']}/resourceGroups/{kwargs['resource_group_name']}/providers/Microsoft.OperationalInsights/workspaces/{kwargs['workspace_name']}/savedSearches"
+        
+
+        #providers/Microsoft.SecurityInsights/incidents/{kwargs['incident_id']}/comments"
+        #PUT https://management.azure.com/subscriptions/{subscriptionId} _
+        #/resourcegroups/{resourceGroupName} _
+        #/providers/Microsoft.OperationalInsights/workspaces/{workspaceName} _
+        #/savedSearches/{savedSearchId}?api-version=2020-03-01-preview
+
+
+        params = {"api-version": "2020-01-01"}
+        print("Here 1")
+        comment_id = str(uuid.uuid4())
+        comment_data = {
+            "properties": {
+                "Category": kwargs["query_category"],
+                "DisplayName": kwargs["query_name"],
+                "Query": kwargs['query'],
+            }
+        }
+
+
+        print("Here 2")
+        res = self.s.put(f"{comment_url}/{comment_id}", json=comment_data, params=params)
+        if res.status_code != 200:
+            raise ConnectionError(res.text)
+
+        return res.text
+
 
 if __name__ == "__main__":
-    asyncio.run(AzureSentinel.run(), debug=False)
+    AzureSentinel.run()

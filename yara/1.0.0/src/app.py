@@ -24,7 +24,25 @@ class Yara(AppBase):
 
     # Write your data inside this function
     #https://yara.readthedocs.io/en/latest/yarapython.html
-    async def analyze_by_rule(self, file_id, rule, timeout=15):
+    def download_rules(self, namespace):
+        zipfiles = self.get_file_namespace(namespace)
+        if zipfiles == None:
+            return {
+                "success": False,
+                "reason": "Failed loading files from namespace %s" % namespace,
+            }
+
+        all_files = ""
+        for name in zipfiles.namelist():
+            for line in zipfiles.open(name).readlines():
+                linedata = line.decode('utf-8')
+                all_files += linedata
+
+        return all_files
+
+    # Write your data inside this function
+    #https://yara.readthedocs.io/en/latest/yarapython.html
+    def analyze_by_rule(self, file_id, rule, timeout=15):
         if timeout == 0 or not timeout:
             timeout = 15
         else:
@@ -95,7 +113,7 @@ class Yara(AppBase):
 
     # Write your data inside this function
     #https://yara.readthedocs.io/en/latest/yarapython.html
-    async def analyze_file(self, file_id, timeout=15):
+    def analyze_file(self, file_id, timeout=15):
         if timeout == 0 or not timeout:
             timeout = 15
         else:
@@ -170,4 +188,4 @@ class Yara(AppBase):
             return return_data 
 
 if __name__ == "__main__":
-    asyncio.run(Yara.run(), debug=True)
+    Yara.run()

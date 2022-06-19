@@ -31,7 +31,7 @@ class AWSEC2(AppBase):
         """
         super().__init__(redis, logger, console_logger)
 
-    async def auth_ec2(self, access_key, secret_key, region):
+    def auth_ec2(self, access_key, secret_key, region):
         my_config = Config(
             region_name = region,
             signature_version = 'v4',
@@ -51,15 +51,15 @@ class AWSEC2(AppBase):
         return self.ec2
 
     # Write your data inside this function
-    async def get_rules(self, access_key, secret_key, region, NetworkAclId):
-        self.ec2 = await self.auth_ec2(access_key, secret_key, region)
+    def get_rules(self, access_key, secret_key, region, NetworkAclId):
+        self.ec2 = self.auth_ec2(access_key, secret_key, region)
 
         network_acl = self.ec2.NetworkAcl(NetworkAclId)
         return network_acl.entries
 
     # Write your data inside this function
-    async def block_ip(self, access_key, secret_key, region, NetworkAclId, ip, direction):
-        self.ec2 = await self.auth_ec2(access_key, secret_key, region)
+    def block_ip(self, access_key, secret_key, region, NetworkAclId, ip, direction):
+        self.ec2 = self.auth_ec2(access_key, secret_key, region)
         network_acl = self.ec2.NetworkAcl(NetworkAclId)
 
         if "/" not in ip:
@@ -116,8 +116,8 @@ class AWSEC2(AppBase):
 
 
     # Write your data inside this function
-    async def create_acl_entry(self, access_key, secret_key, region, NetworkAclId , cidr_block, dryrun, direction, portrange_from, portrange_to, protocol, rule_action, rule_number):
-        self.ec2 = await self.auth_ec2(access_key, secret_key, region)
+    def create_acl_entry(self, access_key, secret_key, region, NetworkAclId , cidr_block, dryrun, direction, portrange_from, portrange_to, protocol, rule_action, rule_number):
+        self.ec2 = self.auth_ec2(access_key, secret_key, region)
 
         network_acl = self.ec2.NetworkAcl(NetworkAclId)
         if protocol.lower() == "tcp":
@@ -158,8 +158,8 @@ class AWSEC2(AppBase):
             return "%s" % e
 
     #Terminate, Start and Stop Instance
-    async def instance_state_change(self, access_key, secret_key, region, instance_id, action, dryrun):
-        self.ec2 = await self.auth_ec2(access_key, secret_key, region)
+    def instance_state_change(self, access_key, secret_key, region, instance_id, action, dryrun):
+        self.ec2 = self.auth_ec2(access_key, secret_key, region)
         instance = self.ec2.Instance(instance_id)
         dryrun = True if dryrun in ["True", "true"] else False
 
@@ -173,10 +173,24 @@ class AWSEC2(AppBase):
         except botocore.exceptions.ClientError as e:
             print("Error: %s" % e)
             return "%s" % e
+    
+    #Create Network Interface
+    def create_network_interface(self, access_key, secret_key, region, subnetid, description, dryrun ):
+        self.ec2 = self.auth_ec2(access_key, secret_key, region)
+        client = self.ec2.meta.client
+        dryrun = True if dryrun in ["True", "true"] else False
+        try:
+            return client.create_network_interface(
+                Description = description,
+                DryRun = dryrun,
+                SubnetId = subnetid
+            )
+        except Exception as e:
+            return e
 
     #Create Image
-    async def create_image(self, access_key, secret_key, region, description, instance_id, name, dryrun, noreboot):
-        self.ec2 = await self.auth_ec2(access_key, secret_key, region)
+    def create_image(self, access_key, secret_key, region, description, instance_id, name, dryrun, noreboot):
+        self.ec2 = self.auth_ec2(access_key, secret_key, region)
         client = self.ec2.meta.client
         dryrun = True if dryrun in ["True", "true"] else False
         noreboot = True if dryrun in ["True", "true"] else False
@@ -192,8 +206,8 @@ class AWSEC2(AppBase):
             return e
 
     #Deregister Image
-    async def deregister_an_image(self, access_key, secret_key, region, image_id, dryrun):
-        self.ec2 = await self.auth_ec2(access_key, secret_key, region)
+    def deregister_an_image(self, access_key, secret_key, region, image_id, dryrun):
+        self.ec2 = self.auth_ec2(access_key, secret_key, region)
         client = self.ec2.meta.client
         dryrun = True if dryrun in ["True", "true"] else False
         try:
@@ -205,8 +219,8 @@ class AWSEC2(AppBase):
             return e
     
     #Create Snapshot
-    async def create_snapshot(self, access_key, secret_key, region, description, volume_id, dryrun):
-        self.ec2 = await self.auth_ec2(access_key, secret_key, region)
+    def create_snapshot(self, access_key, secret_key, region, description, volume_id, dryrun):
+        self.ec2 = self.auth_ec2(access_key, secret_key, region)
         client = self.ec2.meta.client
         dryrun = True if dryrun in ["True", "true"] else False
         try:
@@ -220,8 +234,8 @@ class AWSEC2(AppBase):
             return e
     
     #Delete Snapshot
-    async def delete_snapshot(self, access_key, secret_key, region, snapshot_id, dryrun):
-        self.ec2 = await self.auth_ec2(access_key, secret_key, region)
+    def delete_snapshot(self, access_key, secret_key, region, snapshot_id, dryrun):
+        self.ec2 = self.auth_ec2(access_key, secret_key, region)
         client = self.ec2.meta.client
         dryrun = True if dryrun in ["True", "true"] else False
         try:
@@ -233,8 +247,8 @@ class AWSEC2(AppBase):
             return e
 
     #Delete Network Interface
-    async def delete_network_interface(self, access_key, secret_key, region, networkinterface_id, dryrun):
-        self.ec2 = await self.auth_ec2(access_key, secret_key, region)
+    def delete_network_interface(self, access_key, secret_key, region, networkinterface_id, dryrun):
+        self.ec2 = self.auth_ec2(access_key, secret_key, region)
         client = self.ec2.meta.client
         dryrun = True if dryrun in ["True", "true"] else False
         try:
@@ -246,8 +260,8 @@ class AWSEC2(AppBase):
             return e
 
     #Describing address
-    async def describe_address(self, access_key, secret_key, region, publicips, dryrun):
-        self.ec2=await self.auth_ec2(access_key, secret_key, region)
+    def describe_address(self, access_key, secret_key, region, publicips, dryrun):
+        self.ec2=self.auth_ec2(access_key, secret_key, region)
         client = self.ec2.meta.client
         dryrun = True if dryrun in ["True", "true"] else False
         try:
@@ -263,8 +277,8 @@ class AWSEC2(AppBase):
             return e
 
     #Describing key pair
-    async def describe_keypair(self, access_key, secret_key, region,  dryrun, option, value):
-        self.ec2=await self.auth_ec2(access_key, secret_key, region)
+    def describe_keypair(self, access_key, secret_key, region,  dryrun, option, value):
+        self.ec2=self.auth_ec2(access_key, secret_key, region)
         client = self.ec2.meta.client
         dryrun = True if dryrun in ["True", "true"] else False
         try:
@@ -290,8 +304,8 @@ class AWSEC2(AppBase):
             return e
 
     #Describing network acls
-    async def describe_networkacls(self, access_key, secret_key, region, dryrun, networkAcl_Id):
-        self.ec2=await self.auth_ec2(access_key, secret_key, region)
+    def describe_networkacls(self, access_key, secret_key, region, dryrun, networkAcl_Id):
+        self.ec2=self.auth_ec2(access_key, secret_key, region)
         client = self.ec2.meta.client
         dryrun = True if dryrun in ["True", "true"] else False
         try:                
@@ -309,8 +323,8 @@ class AWSEC2(AppBase):
             return e
 
     #Describing Security groups
-    async def describe_securitygroups(self, access_key, secret_key, region, dryrun, option, value):
-        self.ec2=await self.auth_ec2(access_key, secret_key, region)
+    def describe_securitygroups(self, access_key, secret_key, region, dryrun, option, value):
+        self.ec2=self.auth_ec2(access_key, secret_key, region)
         client = self.ec2.meta.client
         dryrun = True if dryrun in ["True", "true"] else False
         try:
@@ -336,8 +350,8 @@ class AWSEC2(AppBase):
             return e
 
     #Describing vpcs
-    async def describe_vpc(self, access_key, secret_key, region, dryrun, vpcid):
-        self.ec2=await self.auth_ec2(access_key, secret_key, region)
+    def describe_vpc(self, access_key, secret_key, region, dryrun, vpcid):
+        self.ec2=self.auth_ec2(access_key, secret_key, region)
         client = self.ec2.meta.client
         dryrun = True if dryrun in ["True", "true"] else False
         try:
@@ -356,6 +370,52 @@ class AWSEC2(AppBase):
         except Exception as e:
             return e
 
+    def create_an_instance(self, access_key, secret_key, region, dryrun, image_id, min_count, max_count, instance_type, user_data, key_name, security_group_ids):
+        client = boto3.resource('ec2', 
+                    aws_access_key_id=access_key,
+                    aws_secret_access_key=secret_key,
+                    region_name=region)
+        dryrun = True if dryrun in ["True", "true"] else False    
+        
+        try:
+            if security_group_ids:
+                security_group_ids_list = [i for i in security_group_ids.split(" ")]
+                instance =  client.create_instances(
+                                DryRun= dryrun,
+                                ImageId=image_id,
+                                MinCount=int(min_count),
+                                MaxCount=int(max_count),
+                                InstanceType=instance_type,
+                                KeyName=key_name,
+                                SecurityGroupIds= security_group_ids_list,
+                                UserData= user_data
+                                                               
+                            )
+                #parsing response         
+                total_instances = ["instance_id_"+str(i) for i in range(1,len(instance)+1)] 
+                instance_id_list = [i.id for i in instance]  
+                response = dict(zip(total_instances,instance_id_list))
+                response.update({"Success":"True"})
+                return response   
+            else:
+                instance =  client.create_instances(
+                                DryRun= dryrun,
+                                ImageId=image_id,
+                                MinCount=int(min_count),
+                                MaxCount=int(max_count),
+                                InstanceType=instance_type,
+                                KeyName=key_name,
+                                UserData= user_data
+                            )
+                #parsing response            
+                total_instances = ["instance_id_"+str(i) for i in range(1,len(instance)+1)] 
+                instance_id_list = [i.id for i in instance]  
+                response = dict(zip(total_instances,instance_id_list))
+                response.update({"Success":"True"})
+                return response
+        except Exception as e:
+            return f"Exception occured: {e}"        
+
 
 if __name__ == "__main__":
-    asyncio.run(AWSEC2.run(), debug=True)
+    AWSEC2.run()
