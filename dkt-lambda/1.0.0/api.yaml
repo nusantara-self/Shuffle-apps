@@ -23,12 +23,6 @@ authentication:
       example: "*******"
       schema:
         type: string
-    - name: password
-      description: Splunk Password
-      example: "******"
-      required: true
-      schema:
-        type: string
 actions:
   - name: invoke_function
     description: Invoke an AWS Lambda function and returns its results.
