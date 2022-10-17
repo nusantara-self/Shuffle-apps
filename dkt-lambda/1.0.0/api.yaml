@@ -1,13 +1,13 @@
 app_version: 1.0.0
-name: dkt-lambda
+name: DKT Lambda
 description: An app that allows us to invoke an AWS Lambda function with custom input parameters.
 contact_info:
   name: "dkt-soc"
   url: https://github.com/dktunited/shuffle-apps-dkt-soc
 tags:
-  - Alert
+  - DKT
 categories:
-  - SIEM
+  - Intel
 authentication:
   required: true
   parameters:
@@ -70,7 +70,7 @@ actions:
           type: string
       - name: function_params
         description: AWS Lambda function parameters
-        example: "{"param1": "value1", "param2": "value2"}"
+        example: "{\"param1\": \"value1\", \"param2\": \"value2\"}"
         required: true
         schema:
           type: string

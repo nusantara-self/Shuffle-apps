@@ -16,7 +16,7 @@ from walkoff_app_sdk.app_base import AppBase
 
 class DktLambda(AppBase):
     __version__ = "1.0.0"
-    app_name = "dkt-lambda"
+    app_name = "DKT Lambda"
 
     def __init__(self, redis, logger, console_logger=None):
         """
