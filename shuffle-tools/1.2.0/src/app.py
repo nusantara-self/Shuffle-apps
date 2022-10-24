@@ -980,12 +980,15 @@ class Tools(AppBase):
         #try:
         #    if str(data).startswith("b'") and str(data).endswith("'"):
         #        data = data[2:-1]
+        #    if str(data).startswith("\"") and str(data).endswith("\""):
+        #        data = data[2:-1]
         #except Exception as e:
         #    self.logger.info(f"Exception: {e}")
-        try:
-            data = json.dumps(data)
-        except:
-            pass
+
+        #try:
+        #    data = json.dumps(data)
+        #except:
+        #    pass
 
         filedata = {
             "filename": filename,
@@ -1580,36 +1583,59 @@ class Tools(AppBase):
         if utc_format.endswith("%z"):
             utc_format = utc_format.replace("%z", "Z")
 
-        if date_format != "%s" and date_format != "autodetect":
+        #if date_format != "%s" and date_format != "autodetect":
+        if date_format == "autodetect":
+            formatted_dt = datetime.datetime.utcnow() + delta
+        elif date_format != "%s":
             formatted_dt = datetime.datetime.strptime(
                 datetime.datetime.utcnow().strftime(utc_format), date_format
             )
+
         else:
             formatted_dt = datetime.datetime.utcnow()
 
-        print("Formatted time is: {}".format(formatted_dt))
-
-        if direction == "ago":
+        if date_format == "autodetect":
+            comparison_dt = formatted_dt
+        elif direction == "ago":
             comparison_dt = formatted_dt - delta
+            #formatted_dt - delta
+            #comparison_dt = datetime.datetime.utcnow()
         else:
             comparison_dt = formatted_dt + delta
-        print("{} {} {} is {}".format(offset, units, direction, comparison_dt))
+            #comparison_dt = datetime.datetime.utcnow()
 
-        diff = (input_dt - comparison_dt).total_seconds()
+        print("{} {} {} is {}. Delta: {}".format(offset, units, direction, comparison_dt, delta))
+
+        diff = int((input_dt - comparison_dt).total_seconds())
         print(
-            "Difference between {} and {} is {} seconds ({} days)".format(timestamp, comparison_dt, diff, int(diff/86400))
+            "\nDifference between {} and {} is {} seconds ({} days)\n".format(timestamp, comparison_dt, diff, int(diff/86400))
         )
+
+        if units == "seconds":
+            diff = diff
+        elif units == "minutes":
+            diff = int(diff/60)
+        elif units == "hours":
+            diff = int(diff/3600)
+        elif units == "days":
+            diff = int(diff/86400)
+        elif units == "week":
+            diff = int(diff/604800)
+
         result = False
         if equality_test == ">":
             result = 0 > diff
             if direction == "ahead":
                 result = not (result)
+
         elif equality_test == "<":
             result = 0 < diff
             if direction == "ahead":
                 result = not (result)
+
         elif equality_test == "=":
-            result = diff == 0
+            result = diff == 0 
+
         elif equality_test == "!=":
             result = diff != 0
         elif equality_test == ">=":
@@ -1622,7 +1648,7 @@ class Tools(AppBase):
                 result = not (result)
 
         print(
-            "At {}, is {} {} than {} {} {}? {}".format(
+            "At {}, is {} {} to    {} {} {}? {}. Diff {}".format(
                 formatted_dt,
                 timestamp,
                 equality_test,
@@ -1630,6 +1656,7 @@ class Tools(AppBase):
                 units,
                 direction,
                 result,
+                diff,
             )
         )
 
@@ -1655,7 +1682,7 @@ class Tools(AppBase):
         return result
 
     # This is kind of stupid
-    def escape_html(self, input_data, field_name):
+    def escape_html(self, input_data):
         if isinstance(input_data, str):
             mapping = json.loads(input_data)
         else:
@@ -1663,10 +1690,7 @@ class Tools(AppBase):
 
         self.logger.info(f"Got mapping {json.dumps(mapping, indent=2)}")
 
-        result = markupsafe.escape(mapping[field_name])
-        self.logger.info(f"Mapping {input_data} to {result}")
-
-        mapping[field_name] = result
+        result = markupsafe.escape(mapping)
         return mapping
 
     def check_cache_contains(self, key, value, append):
