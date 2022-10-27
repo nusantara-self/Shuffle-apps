@@ -1,4 +1,4 @@
-app_version: 1.0.0
+app_version: 1.0.1
 name: DKT Lambda
 description: An app that allows us to invoke an AWS Lambda function with custom input parameters.
 contact_info:
