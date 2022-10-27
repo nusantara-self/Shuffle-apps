@@ -58,9 +58,8 @@ class DktLambda(AppBase):
             if 'errorMessage' in response_data:
                 ret_response = {"success": False, "reason": "Function timed out"}
             else:
-                ret_response = {"success": True, "results": response_data[0]}
+                ret_response = {"success": True, "results": response_data}
         except ClientError:
-            raise
             response_error = json.loads('{"success": False, "reason": "Couldn\'t invoke function ' + function_name + '"}')
             return response_error
 
