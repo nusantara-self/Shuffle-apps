@@ -552,7 +552,7 @@ actions:
       schema:
         type: string
   - name: xml_json_convertor
-    description: Converts xml to json and vice versa
+    description: Converts xml or html to json and vice versa. 
     parameters:
       - name: convertto
         required: true
@@ -713,6 +713,41 @@ actions:
         schema:
           type: string
   - name: merge_lists
+    description: Merges two lists of same type AND length.
+    parameters:
+      - name: list_one
+        description: The first list
+        multiline: true
+        example: "{'key': 'value'}"
+        required: true
+        schema:
+          type: string
+      - name: list_two
+        description: The second list to use
+        multiline: true
+        required: true
+        example: "{'key2': 'value2'}"
+        schema:
+          type: string
+      - name: set_field
+        description: If items in list 2 are strings, but first is JSON, sets the values to the specified key. Defaults to key "new_shuffle_key"
+        required: false
+        example: "json_key"
+        schema:
+          type: string
+      - name: sort_key_list_one
+        description: Sort by this key before using list one for merging
+        required: false
+        example: "json_key"
+        schema:
+          type: string
+      - name: sort_key_list_two
+        description: Sort by this key before using list two for merging
+        required: false
+        example: "json_key"
+        schema:
+          type: string
+  - name: merge_json_objects
     description: Merges two lists of same type AND length.
     parameters:
       - name: list_one
@@ -1009,6 +1044,71 @@ actions:
         example: 'cases'
         options:
          - cases
+        schema:
+          type: string
+  - name: generate_random_string 
+    description: 'Used to generate passwords and random strings'
+    parameters:
+      - name: length 
+        description: The length of the string. Defaults to 16
+        required: false
+        multiline: false 
+        example: '16'
+        schema:
+          type: string
+      - name: special_characters
+        description: Whether to include special characters or not
+        required: false
+        multiline: false 
+        example: 'true'
+        options:
+         - true 
+         - false
+        schema:
+          type: string
+  - name: run_ssh_command 
+    description: 'Run a command on remote machine with SSH'
+    parameters:
+      - name: host 
+        description: Host IP
+        required: true
+        multiline: false 
+        example: '192.168.55.11'
+        schema:
+          type: string
+      - name: port 
+        description: A port on which SSH service is running
+        required: false
+        multiline: false 
+        example: 'Default is 22'
+        schema:
+          type: string
+      - name: user_name
+        description: User on remote system
+        required: true
+        multiline: false 
+        example: 'root'
+        schema:
+          type: string
+      - name: private_key_file_id
+        description: Private key file ID
+        required: false
+        multiline: false 
+        example: 'file_c5c87a50-4146-40e2-a698-78cf13bf65c0'
+        schema:
+          type: string
+      - name: password
+        description: Password for SSH user. Use either password or private key. 
+        required: false
+        multiline: false 
+        example: '***'
+        schema:
+          type: string
+      - name: command
+        description: Command you want to run
+        required: true
+        multiline: true
+        example: 'ls -la'
         schema:
           type: string
 

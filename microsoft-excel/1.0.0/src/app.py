@@ -6,9 +6,11 @@ import json
 import uuid
 import time
 import requests
-from openpyxl import Workbook, load_workbook
 
+from walkoff_app_sdk import csv_parse 
 from walkoff_app_sdk.app_base import AppBase
+
+from openpyxl import Workbook, load_workbook
 
 class MSExcel(AppBase):
     __version__ = "1.0.0"
@@ -123,7 +125,7 @@ class MSExcel(AppBase):
         if filedata["success"] != True:
             return filedata
     
-        basename = "file.xlsx"
+        basename = "/tmp/file.xlsx"
         with open(basename, "wb") as tmp:
             tmp.write(filedata["data"])
     
@@ -163,9 +165,25 @@ class MSExcel(AppBase):
         if filedata["success"] != True:
             print(f"Bad info from file: {filedata}") 
             return filedata
-        #filedata = file_id
+
+        try:
+            print("Filename: %s" % filedata["filename"])
+            if "csv" in filedata["filename"]:
+                try:
+                    filedata["data"] = filedata["data"].decode("utf-8")
+                except:
+                    try:
+                        filedata["data"] = filedata["data"].decode("utf-16")
+                    except:
+                        filedata["data"] = filedata["data"].decode("latin-1")
+
+                returndata = csv_parse(filedata["data"])
+                return returndata
+
+        except Exception as e:
+            print("Error parsing file with csv parser for file %s: %s" % (filedata["filename"], e))
     
-        basename = "file.xlsx"
+        basename = "/tmp/file.xlsx"
         with open(basename, "wb") as tmp:
             tmp.write(filedata["data"])
     
@@ -175,7 +193,7 @@ class MSExcel(AppBase):
         except Exception as e:
             return {
                 "success": False,
-                "reason": "The file is invalid. Are you sure it's a valid excel file?",
+                "reason": "The file is invalid. Are you sure it's a valid excel file? CSV files are not supported.",
                 "exception": "Error: %s" % e,
             }
 
