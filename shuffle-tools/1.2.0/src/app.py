@@ -529,10 +529,17 @@ class Tools(AppBase):
         # 2. Subprocess execute file?
         try:
             f = StringIO()
-            with redirect_stdout(f):
-                exec(code)  # nosec :(
+            def custom_print(*args, **kwargs):
+                return print(*args, file=f, **kwargs)
+            
+            #with redirect_stdout(f): # just in case
+            # Add globals in it too
+            globals_copy = globals().copy()
+            globals_copy["print"] = custom_print
+            exec(code, globals_copy)
 
             s = f.getvalue()
+            f.close() # why: https://www.youtube.com/watch?v=6SA6S9Ca5-U
 
             #try:
             #    s = s.encode("utf-8")
