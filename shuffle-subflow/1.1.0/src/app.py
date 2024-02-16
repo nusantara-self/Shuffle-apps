@@ -51,11 +51,11 @@ class Subflow(AppBase):
             url = backend_url
 
         print("Found backend url: %s" % url)
-        print("AUTH: %s" % self.full_execution["authorization"])
+        #print("AUTH: %s" % self.full_execution["authorization"])
         #if len(information):
         #    print("Should run arg: %s", information)
 
-        if len(subflow):
+        if len(subflow) > 0:
             #print("Should run subflow: %s", subflow) 
 
             # Missing startnode (user input trigger)
@@ -67,7 +67,8 @@ class Subflow(AppBase):
                 print("Should change port to 3001.")
             if "appspot.com" in frontend_url:
                 frontend_url = "https://shuffler.io"
-
+            if "run.app" in frontend_url:
+                frontend_url = "https://shuffler.io"
 
             for item in subflows: 
                 # In case of URL being passed, and not just ID
@@ -79,10 +80,10 @@ class Subflow(AppBase):
                 argument = json.dumps({
                     "information": information,
                     "parent_workflow": self.full_execution["workflow"]["id"],
-                    "frontend_continue": "%s/workflows/%s/run?authorization=%s&reference_execution=%s&answer=true" % (frontend_url, self.full_execution["workflow"]["id"], self.full_execution["authorization"], self.full_execution["execution_id"]),
-                    "frontend_abort": "%s/workflows/%s/run?authorization=%s&reference_execution=%s&answer=false" % (frontend_url, self.full_execution["workflow"]["id"], self.full_execution["authorization"], self.full_execution["execution_id"]),
-                    "api_continue": "%s/api/v1/workflows/%s/execute?authorization=%s&reference_execution=%s&answer=true" % (frontend_url, self.full_execution["workflow"]["id"], self.full_execution["authorization"], self.full_execution["execution_id"]),
-                    "api_abort": "%s/api/v1/workflows/%s/execute?authorization=%s&reference_execution=%s&answer=false" % (frontend_url, self.full_execution["workflow"]["id"], self.full_execution["authorization"], self.full_execution["execution_id"]),
+                    "frontend_continue": "%s/workflows/%s/run?authorization=%s&reference_execution=%s&answer=true&source_node=%s" % (frontend_url, self.full_execution["workflow"]["id"], self.full_execution["authorization"], self.full_execution["execution_id"], source_node),
+                    "frontend_abort": "%s/workflows/%s/run?authorization=%s&reference_execution=%s&answer=false&source_node=%s" % (frontend_url, self.full_execution["workflow"]["id"], self.full_execution["authorization"], self.full_execution["execution_id"], source_node),
+                    "api_continue": "%s/api/v1/workflows/%s/execute?authorization=%s&reference_execution=%s&answer=true&source_node=%s" % (frontend_url, self.full_execution["workflow"]["id"], self.full_execution["authorization"], self.full_execution["execution_id"], source_node),
+                    "api_abort": "%s/api/v1/workflows/%s/execute?authorization=%s&reference_execution=%s&answer=false&source_node=%s" % (frontend_url, self.full_execution["workflow"]["id"], self.full_execution["authorization"], self.full_execution["execution_id"], source_node),
                 })
 
                 ret = self.run_subflow(user_apikey, item, argument, source_workflow=self.full_execution["workflow"]["id"], source_execution=self.full_execution["execution_id"], source_auth=self.full_execution["authorization"], startnode=startnode, backend_url=backend_url, source_node=source_node)
@@ -106,7 +107,7 @@ class Subflow(AppBase):
 
             print("Should run email with targets: %s", jsondata["targets"])
 
-            ret = requests.post("%s/api/v1/functions/sendmail" % url, json=jsondata, headers=headers)
+            ret = requests.post("%s/api/v1/functions/sendmail" % url, json=jsondata, headers=headers, verify=False, proxies=self.proxy_config)
             if ret.status_code != 200:
                 print("Failed sending email. Data: %s" % ret.text)
                 result["email"] = False 
@@ -131,7 +132,7 @@ class Subflow(AppBase):
 
             print("Should send sms with targets: %s", jsondata["numbers"])
 
-            ret = requests.post("%s/api/v1/functions/sendsms" % url, json=jsondata, headers=headers)
+            ret = requests.post("%s/api/v1/functions/sendsms" % url, json=jsondata, headers=headers, verify=False, proxies=self.proxy_config)
             if ret.status_code != 200:
                 print("Failed sending email. Data: %s" % ret.text)
                 result["sms"] = False 
@@ -142,7 +143,7 @@ class Subflow(AppBase):
 
         return json.dumps(result)
 
-    def run_subflow(self, user_apikey, workflow, argument, source_workflow="", source_execution="", source_node="", source_auth="", startnode="", backend_url=""):
+    def run_subflow(self, user_apikey, workflow, argument, source_workflow="", source_execution="", source_node="", source_auth="", startnode="", backend_url="", check_result=""):
         #print("STARTNODE: %s" % startnode)
         url = "%s/api/v1/workflows/%s/execute" % (self.url, workflow)
         if len(self.base_url) > 0:
@@ -174,6 +175,12 @@ class Subflow(AppBase):
         else:
             print("No startnode")
 
+        if len(self.full_execution["execution_id"]) > 0 and self.full_execution["execution_id"] != source_execution:
+            params["source_execution"] = self.full_execution["execution_id"]
+
+        if len(self.full_execution["authorization"]) > 0 and self.full_execution["authorization"] != source_auth:
+            params["source_auth"] = self.full_execution["authorization"]
+
         if len(str(backend_url)) > 0:
             url = "%s/api/v1/workflows/%s/execute" % (backend_url, workflow)
             print("[INFO] Changed URL to %s for this execution" % url)
@@ -184,7 +191,7 @@ class Subflow(AppBase):
         }
 
         if len(str(argument)) == 0:
-            ret = requests.post(url, headers=headers, params=params)
+            ret = requests.post(url, headers=headers, params=params, verify=False, proxies=self.proxy_config)
         else:
             if not isinstance(argument, list) and not isinstance(argument, dict):
                 try:
@@ -194,14 +201,14 @@ class Subflow(AppBase):
 
             #print(f"ARG: {argument}")
             try:
-                ret = requests.post(url, headers=headers, params=params, json=argument)
+                ret = requests.post(url, headers=headers, params=params, json=argument, verify=False, proxies=self.proxy_config)
                 print(f"Successfully sent argument of length {len(str(argument))} as JSON")
             except:
                 try:
-                    ret = requests.post(url, headers=headers, json=argument, params=params)
+                    ret = requests.post(url, headers=headers, json=argument, params=params, verify=False, proxies=self.proxy_config)
                     print("Successfully sent as JSON (2)")
                 except:
-                    ret = requests.post(url, headers=headers, data=argument, params=params)
+                    ret = requests.post(url, headers=headers, data=argument, params=params, verify=False, proxies=self.proxy_config)
                     print("Successfully sent as data (3)")
 
         print("Status: %d" % ret.status_code)

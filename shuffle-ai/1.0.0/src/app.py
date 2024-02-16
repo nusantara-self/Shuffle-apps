@@ -13,6 +13,89 @@ class Tools(AppBase):
     def __init__(self, redis, logger, console_logger=None):
         super().__init__(redis, logger, console_logger)
 
+    def autoformat_text(self, apikey, text, formatting="auto"):
+        headers = {
+            "Authorization": "Bearer %s" % apikey,
+        }
+
+        if not formatting:
+            formatting = "auto"
+    
+        output_formatting= "Format the following data to be a good email that can be sent to customers. Don't make it too business sounding."
+        if formatting != "auto":
+            output_formatting = formatting
+    
+        ret = requests.post(
+            "https://shuffler.io/api/v1/conversation", 
+            json={
+                "query": text, 
+                "formatting": output_formatting,
+                "output_format": "formatting"
+            },
+            headers=headers,
+        )
+    
+        if ret.status_code != 200:
+            print(ret.text)
+            return {
+                "success": False,
+                "reason": "Status code for auto-formatter is not 200"
+            }
+    
+        return ret.text
+
+    def generate_report(self, apikey, input_data, report_title, report_name="generated_report.html"):
+        headers = {
+            "Authorization": "Bearer %s" % apikey,
+        }
+
+        if not report_name:
+            report_name = "generated_report.html"
+
+        if "." in report_name and not ".html" in report_name:
+            report_name = report_name.split(".")[0]
+
+        if not "html" in report_name:
+            report_name = report_name + ".html"
+
+        report_name = report_name.replace(" ", "_", -1)
+
+        if not formatting:
+            formatting = "auto"
+    
+        output_formatting= "Format the following text into an HTML report with relevant graphs and tables. Title of the report should be {report_title}."
+        ret = requests.post(
+            "https://shuffler.io/api/v1/conversation", 
+            json={
+                "query": text, 
+                "formatting": output_formatting,
+                "output_format": "formatting"
+            },
+            headers=headers,
+        )
+    
+        if ret.status_code != 200:
+            print(ret.text)
+            return {
+                "success": False,
+                "reason": "Status code for auto-formatter is not 200"
+            }
+
+        # Make it into a shuffle file with self.set_files()
+        new_file = {
+            "name": report_name,
+            "data": ret.text,
+        }
+
+        retdata = self.set_files([new_file])
+        if retdata["success"]:
+            return retdata
+
+        return {
+            "success": False,
+            "reason": "Failed to upload file"
+        }
+
 
     def extract_text_from_pdf(self, file_id):
         def extract_pdf_text(pdf_path):
@@ -105,7 +188,7 @@ class Tools(AppBase):
             image = Image.open(temp.name)
             image = image.resize((500,300))
             custom_config = r'-l eng --oem 3 --psm 6'
-            text = pytesseract.image_to_string(image,config=custom_config
+            text = pytesseract.image_to_string(image,config=custom_config)
 
             data = {
                 "success": True,
