@@ -67,7 +67,7 @@ class Email(AppBase):
         elif "," in recipients:
             targets = recipients.split(",")
 
-        data = {"targets": targets, "body": body, "subject": subject, "type": "alert"}
+        data = {"targets": targets, "body": body, "subject": subject, "type": "alert", "email_app": True}
 
         url = "https://shuffler.io/functions/sendmail"
         headers = {"Authorization": "Bearer %s" % apikey}
@@ -391,10 +391,9 @@ class Email(AppBase):
                 "reason": "Couldn't get file with ID %s" % file_id
             }
 
-        print("File: %s" % file_path)
         if file_extension.lower() == 'eml':
             print('working with .eml file')
-            ep = eml_parser.EmlParser(include_attachment_data=True, include_raw_body=True, parse_attachment=True)
+            ep = eml_parser.EmlParser(include_attachment_data=True, include_raw_body=True, parse_attachments=True)
             try:
                 parsed_eml = ep.decode_email_bytes(file_path['data'])
                 if str(parsed_eml["header"]["date"]) == "1970-01-01 00:00:00+00:00":

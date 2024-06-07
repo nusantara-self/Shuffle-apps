@@ -68,14 +68,14 @@ class Email(AppBase):
         elif "," in recipients:
             targets = recipients.split(",")
 
-        data = {"targets": targets, "body": body, "subject": subject, "type": "alert"}
+        data = {"targets": targets, "body": body, "subject": subject, "type": "alert", "email_app": True}
 
         url = "https://shuffler.io/functions/sendmail"
         headers = {"Authorization": "Bearer %s" % apikey}
         return requests.post(url, headers=headers, json=data).text
 
     def send_email_smtp(
-        self, smtp_host, recipient, subject, body, smtp_port, attachments="", username="", password="", ssl_verify="True", body_type="html"
+        self, smtp_host, recipient, subject, body, smtp_port, attachments="", username="", password="", ssl_verify="True", body_type="html", cc_emails=""
     ):
         if type(smtp_port) == str:
             try:
@@ -112,6 +112,10 @@ class Email(AppBase):
         msg["From"] = username
         msg["To"] = recipient
         msg["Subject"] = subject
+        
+        if cc_emails != None and len(cc_emails) > 0:
+            msg["Cc"] = cc_emails
+        
         msg.attach(MIMEText(body, body_type))
 
         # Read the attachments
@@ -161,7 +165,7 @@ class Email(AppBase):
         self.logger.info("Successfully sent email with subject %s to %s" % (subject, recipient))
         return {
             "success": True, 
-            "reason": "Email sent to %s!" % recipient,
+            "reason": "Email sent to %s, %s!" %(recipient,cc_emails) if cc_emails else "Email sent to %s!" % recipient,
             "attachments": attachment_count
         }
 
@@ -384,13 +388,45 @@ class Email(AppBase):
                 "messages": json.dumps(emails, default=default),
             }
 
+    def parse_eml(self, filedata, extract_attachments=False):
+        parsedfile = {
+            "success": True,
+            "filename": "email.eml",
+            "data": filedata,
+        }
+
+        # Encode the data as utf-8 if it's not base64
+        if not str(parsedfile["data"]).endswith("="):
+            parsedfile["data"] = parsedfile["data"].encode("utf-8")
+
+        return self.parse_email_file(parsedfile, extract_attachments)
+
     def parse_email_file(self, file_id, extract_attachments=False):
-        file_path = self.get_file(file_id)
+        file_path = {
+            "success": False,
+        }
+
+        if isinstance(file_id, dict) and "data" in file_id:
+            file_path = file_id
+        else:
+            file_path = self.get_file(file_id)
+
         if file_path["success"] == False:
             return {
                 "success": False,
                 "reason": "Couldn't get file with ID %s" % file_id
             }
+
+        # Check if data is in base64 and decode it
+        # If it ends with = then it may be bas64
+
+        if str(file_path["data"]).endswith("="):
+            try:
+                file_path["data"] = base64.b64decode(file_path["data"])
+            except Exception as e:
+                print(f"Failed to decode base64: {e}")
+
+        #print("POST: ", file_path)
 
         #print("File: %s" % file_path)
         print('working with .eml file? %s' % file_path["filename"])
@@ -399,6 +435,16 @@ class Email(AppBase):
             extract_attachments = True
         else:
             extract_attachments = False
+
+        # Replace raw newlines \\r\\n with actual newlines
+        # The data is a byte string, so we need to decode it to utf-8
+        try:
+            print("Pre size: %d" % len(file_path["data"]))
+            file_path["data"] = file_path["data"].decode("utf-8").replace("\\r\\n", "\n").encode("utf-8")
+            print("Post size: %d" % len(file_path["data"]))
+        except Exception as e:
+            print(f"Failed to decode file: {e}")
+            pass
 
         # Makes msg into eml
         if ".msg" in file_path["filename"] or "." not in file_path["filename"]:
@@ -414,6 +460,7 @@ class Email(AppBase):
                 if ".msg" in file_path["filename"]:
                     return {"success":False, "reason":f"Exception occured during msg parsing: {e}"}    
 
+
         ep = eml_parser.EmlParser(
             include_attachment_data=True, 
             include_raw_body=True 
@@ -422,8 +469,8 @@ class Email(AppBase):
         try:
             print("Pre email")
             parsed_eml = ep.decode_email_bytes(file_path['data'])
-            if str(parsed_eml["header"]["date"]) == "1970-01-01 00:00:00+00:00" and len(parsed_eml["header"]["subject"]) == 0:
-                return {"success":False,"reason":"Not a valid EML/MSG file, or the file have a timestamp or subject defined (required).", "date": str(parsed_eml["header"]["date"]), "subject": str(parsed_eml["header"]["subject"])}
+            #if str(parsed_eml["header"]["date"]) == "1970-01-01 00:00:00+00:00" and len(parsed_eml["header"]["subject"]) == 0:
+            #    return {"success":False,"reason":"Not a valid EML/MSG file, or the file have a timestamp or subject defined (required).", "date": str(parsed_eml["header"]["date"]), "subject": str(parsed_eml["header"]["subject"])}
 
             # Put attachments in the shuffle file system
             print("Pre attachment")
@@ -471,6 +518,8 @@ class Email(AppBase):
     # Basic function to check headers in an email
     # Can be dumped in in pretty much any format
     def analyze_headers(self, headers):
+        self.logger.info("Input headers: %s" % headers)
+
         # Raw
         if isinstance(headers, str):
             headers = self.parse_email_headers(headers)
@@ -484,6 +533,11 @@ class Email(AppBase):
             headers = headers["header"]
             if "header" in headers:
                 headers = headers["header"]
+
+        if "headers" in headers:
+            headers = headers["headers"]
+            if "headers" in headers:
+                headers = headers["headers"]
         
         if not isinstance(headers, list):
             newheaders = []
@@ -501,6 +555,7 @@ class Email(AppBase):
     
             headers = newheaders
 
+        #self.logger.info("Parsed headers: %s" % headers)
     
         spf = False
         dkim = False
@@ -509,12 +564,16 @@ class Email(AppBase):
 
         analyzed_headers = {
             "success": True,
+            "sender": "",
+            "receiver": "",
+            "subject": "",
+            "date": "",
             "details": {
                 "spf": "",
                 "dkim": "",
                 "dmarc": "",
                 "spoofed": "",
-            }
+            },
         }
 
         for item in headers:
@@ -522,6 +581,19 @@ class Email(AppBase):
                 item["key"] = item["name"]
     
             item["key"] = item["key"].lower()
+
+            # Handle sender/receiver
+            if item["key"] == "from" or item["key"] == "sender" or item["key"] == "delivered-to":
+                analyzed_headers["sender"] = item["value"]
+
+            if item["key"] == "to" or item["key"] == "receiver" or item["key"] == "delivered-to":
+                analyzed_headers["receiver"] = item["value"]
+
+            if item["key"] == "subject" or item["key"] == "title":
+                analyzed_headers["subject"] = item["value"]
+
+            if item["key"] == "date": 
+                analyzed_headers["date"] = item["value"]
     
             if "spf" in item["key"]:
                 analyzed_headers["details"]["spf"] = spf
@@ -598,6 +670,17 @@ class Email(AppBase):
     
         # Should be a dictionary
         return analyzed_headers 
+
+    # This is an SMS function of Shuffle
+    def send_sms_shuffle(self, apikey, phone_numbers, body):
+        phone_numbers = phone_numbers.replace(" ", "")
+        targets = phone_numbers.split(",")
+
+        data = {"numbers": targets, "body": body}
+
+        url = "https://shuffler.io/api/v1/functions/sendsms"
+        headers = {"Authorization": "Bearer %s" % apikey}
+        return requests.post(url, headers=headers, json=data, verify=False).text
 
 
 # Run the actual thing after we've checked params

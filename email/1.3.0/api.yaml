@@ -83,6 +83,13 @@ actions:
         required: true
         schema:
           type: string
+      - name: cc_emails
+        description: cc_emails
+        multiline: false
+        example: "frikky@shuffler.io,frikky@shuffler.io"
+        required: false
+        schema:
+          type: string
       - name: subject
         description: The subject of the email
         multiline: false
@@ -233,6 +240,25 @@ actions:
         required: false 
         schema:
           type: bool    
+  - name: parse_eml
+    description: Takes an eml string and parses it to JSON
+    parameters:
+      - name: filedata 
+        description: The EML string data
+        required: true
+        multiline: true
+        example: 'EML string data'
+        schema:
+          type: string
+      - name: extract_attachments 
+        description: Whether to extract the attachments straight into files
+        required: true
+        options:
+          - true 
+          - false 
+        example: 'true'
+        schema:
+          type: string
   - name: parse_email_file
     description: Takes a file from shuffle and analyzes it if it's a valid .eml or .msg
     parameters:
@@ -274,6 +300,33 @@ actions:
         multiline: true
         schema:
           type: string            
+    returns:
+      schema:
+        type: string
+  - name: send_sms_shuffle
+    description: Send an SMS from Shuffle
+    parameters:
+      - name: apikey
+        description: Your https://shuffler.io organization apikey
+        multiline: false
+        example: "https://shuffler.io apikey"
+        required: true
+        schema:
+          type: string
+      - name: phone_numbers
+        description: The receivers of the SMS
+        multiline: false
+        example: "+4741323535,+8151023022"
+        required: true
+        schema:
+          type: string
+      - name: body
+        description: The SMS to add to the numbers
+        multiline: true
+        example: "This is an alert from Shuffle :)"
+        required: true
+        schema:
+          type: string
     returns:
       schema:
         type: string
