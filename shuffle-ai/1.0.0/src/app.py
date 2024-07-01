@@ -243,6 +243,8 @@ class Tools(AppBase):
         if app_name:
             data["app_name"] = app_name
 
+        self.logger.info(f"\n\nFIELDS MAPPED\n\n: {fields}")
+
         if fields:
             if isinstance(fields, list):
                 data["fields"] = fields
@@ -289,6 +291,22 @@ class Tools(AppBase):
             json=data,
             headers=headers,
         )
+
+        try: 
+            if "parameters" in self.action:
+                response_headers = request.headers
+                for key, value in response_headers.items():
+                    if not str(key).lower().endswith("-url"):
+                        continue
+
+                    self.action["parameters"].append({
+                        "name": key,
+                        "value": value,
+                    })
+
+                    #self.logger.info("[DEBUG] Response header: %s: %s" % (key, value))
+        except Exception as e:
+            self.logger.info("[ERROR] Failed to get response headers (category action url debug mapping): %s" % e)
 
         try: 
             return request.json()

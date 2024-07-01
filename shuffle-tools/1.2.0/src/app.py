@@ -198,6 +198,7 @@ class Tools(AppBase):
             "subject": subject, 
             "body": body, 
             "type": "alert",
+            "email_app": True,
         }
 
         # Read the attachments
@@ -214,12 +215,85 @@ class Tools(AppBase):
                 pass
                 
 
-        url = "https://shuffler.io/api/v1/functions/sendmail"
+        url = "https://shuffler.io/functions/sendmail"
         headers = {"Authorization": "Bearer %s" % apikey}
-        return requests.post(url, headers=headers, json=data, verify=False).text
+        return requests.post(url, headers=headers, json=data).text
 
     def repeat_back_to_me(self, call):
         return call
+
+    def dedup_and_merge(self, key, value, timeout, set_skipped=True):
+        timeout = int(timeout)
+        key = str(key)
+
+        set_skipped = True
+        if str(set_skipped).lower() == "false":
+            set_skipped = False
+        else:
+            set_skipped = True
+
+        cachekey = "dedup-%s" % (key)
+        response = {
+            "success": False,
+            "datastore_key": cachekey,
+            "info": "All keys from the last %d seconds with the key '%s' have been merged. The result was set to SKIPPED in all other actions." % (timeout, key),
+            "timeout": timeout,
+            "original_value": value,
+            "all_values": [],
+        }
+
+        found_cache = self.get_cache(cachekey)
+
+        if found_cache["success"] == True and len(found_cache["value"]) > 0:
+            if "value" in found_cache:
+                if not str(found_cache["value"]).startswith("["):
+                    found_cache["value"] = [found_cache["value"]]
+                else:
+                    try:
+                        found_cache["value"] = json.loads(found_cache["value"])
+                    except Exception as e:
+                        self.logger.info("[ERROR] Failed parsing JSON: %s" % e)
+            else:
+                found_cache["value"] = []
+
+            found_cache["value"].append(value)
+            if "created" in found_cache:
+                if found_cache["created"] + timeout + 3 < time.time():
+                    set_skipped = False 
+                    response["success"] = True
+                    response["all_values"] = found_cache["value"]
+
+                    self.delete_cache(cachekey)
+
+                    return json.dumps(response)
+                else:
+                    self.logger.info("Dedup-key is already handled in another workflow with timeout %d" % timeout)
+
+            self.set_cache(cachekey, json.dumps(found_cache["value"]))
+            if set_skipped == True:
+                self.action_result["status"] = "SKIPPED"
+                self.action_result["result"] = json.dumps({
+                    "status": False,
+                    "reason": "Dedup-key is already handled in another workflow with timeout %d" % timeout,
+                })
+
+                self.send_result(self.action_result, {"Authorization": "Bearer %s" % self.authorization}, "/api/v1/streams")
+
+            return found_cache
+
+        parsedvalue = [value]
+        resp = self.set_cache(cachekey, json.dumps(parsedvalue))
+
+        self.logger.info("Sleeping for %d seconds while waiting for cache to fill up elsewhere" % timeout)
+        time.sleep(timeout)
+        found_cache = self.get_cache(cachekey)
+
+        response["success"] = True
+        response["all_values"] = found_cache["value"]
+
+        self.delete_cache(cachekey)
+        return json.dumps(response)
+
 
     # https://github.com/fhightower/ioc-finder
     def parse_file_ioc(self, file_ids, input_type="all"):
@@ -2406,6 +2480,8 @@ class Tools(AppBase):
         else:
             input_type = input_type.split(",")
             for i in range(len(input_type)):
+                item = input_type[i]
+
                 item = item.strip()
                 if not item.endswith("s"):
                     item = "%ss" % item
