@@ -1,0 +1,96 @@
+name: dockerbuild 
+
+on:
+  push:
+    branches: master
+  pull_request:
+    branches: master
+jobs:
+  list_apps:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+    - id: set-matrix
+      run: |
+        cat > list.py << EOF
+        import glob
+        import json
+        flist = glob.glob('*/*')
+        ret = []
+        for i in flist:
+          a,v = i.split('/')
+          # Look for folders only
+          if 'unsupported' in v or 'unsupported' in a:
+            continue
+
+          if '.md' in v:
+            continue
+
+          ret.append({'app':a, 'version':v })
+        print(json.dumps({'include': ret}))
+        EOF
+        matrix=$(python3 list.py)
+        echo "::set-output name=matrix::$matrix"
+
+  main:
+    runs-on: ubuntu-latest
+    needs: list_apps
+    continue-on-error: true
+    strategy:
+      matrix: ${{fromJson(needs.list_apps.outputs.matrix)}}
+    steps:
+      -
+        name: Checkout
+        uses: actions/checkout@v4
+      -
+        name: Set up QEMU
+        uses: docker/setup-qemu-action@v1
+      -
+        name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+      -
+        name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+#        Use below configuration for ghcr.io
+#        with:
+#          registry: ghcr.io
+#          username: ${{ github.repository_owner }}
+#          password: ${{ secrets.CR_PAT }} 
+      -
+        name: Build and push Master
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+        id: docker_build_master
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.app }}/${{ matrix.version }}
+          file: ${{ matrix.app }}/${{ matrix.version }}/Dockerfile          
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            frikky/${{ matrix.app }}:${{ matrix.version }}
+            frikky/${{ matrix.app }}:latest
+            frikky/shuffle:${{ matrix.app }}_${{ matrix.version }}
+      -
+        name: Build and push Feature PR
+        if: ${{ github.event_name == 'pull_request' }}
+        id: docker_build_feature
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.app }}/${{ matrix.version }}
+          file: ${{ matrix.app }}/${{ matrix.version }}/Dockerfile          
+          platforms: linux/amd64,linux/arm64,linux/386
+          push: true
+          tags: |
+            frikky/${{ matrix.app }}:${{ github.head_ref }}
+      -
+        name: Image digest
+        run: |
+          echo ${{ steps.docker_build_master.outputs.digest }}
+          echo ${{ steps.docker_build_feature.outputs.digest }}

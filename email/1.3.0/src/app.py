@@ -11,8 +11,6 @@ import smtplib
 import time
 import random
 import eml_parser
-import mailparser
-import extract_msg
 import jsonpickle
 
 from glom import glom
@@ -21,7 +19,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
 
-from walkoff_app_sdk.app_base import AppBase
+from shuffle_sdk import AppBase 
 
 def json_serial(obj):
     if isinstance(obj, datetime.datetime):
@@ -68,21 +66,41 @@ class Email(AppBase):
         elif "," in recipients:
             targets = recipients.split(",")
 
-        data = {"targets": targets, "body": body, "subject": subject, "type": "alert", "email_app": True}
+        newtargets = []
+        for target in targets:
+            newtarget = target.strip()
+            if newtarget: 
+                newtargets.append(newtarget)
+
+        targets = newtargets
+
+        data = {
+            "targets": targets, 
+            "body": body, 
+            "subject": subject, 
+            "type": "alert", 
+            "email_app": True,
+        }
 
         url = "https://shuffler.io/functions/sendmail"
         headers = {"Authorization": "Bearer %s" % apikey}
         return requests.post(url, headers=headers, json=data).text
 
-    def send_email_smtp(
-        self, smtp_host, recipient, subject, body, smtp_port, attachments="", username="", password="", ssl_verify="True", body_type="html", cc_emails=""
-    ):
+    def send_email_smtp(self, smtp_host, recipient, subject, body, smtp_port, attachments="", username="", password="", ssl_verify="True", body_type="html", cc_emails=""):
+        self.logger.info("Sending email to %s with subject %s" % (recipient, subject))
         if type(smtp_port) == str:
             try:
                 smtp_port = int(smtp_port)
             except ValueError:
                 return "SMTP port needs to be a number (Current: %s)" % smtp_port
 
+        if "office365.com" in smtp_host:
+            return {
+                "success": False,
+                "reason": "Office 365 does not easily support SMTP anymore, and recommends the Graph API. Please use the Outlook Office365 app in Shuffle with the 'send email' action."
+            }
+
+        self.logger.info("Pre SMTP setup")
         try:
             s = smtplib.SMTP(host=smtp_host, port=smtp_port)
         except socket.gaierror as e:
@@ -95,31 +113,53 @@ class Email(AppBase):
         else:
             s.starttls()
 
+        self.logger.info("Pre SMTP auth")
         if len(username) > 1 or len(password) > 1:
             try:
                 s.login(username, password)
+            except Exception as e:
+                if len(password) == 0:
+                    self.logger.info("[WARNING] Auth failed (2). No password provided. Continuing as auth may not be necessary.")
+                else:
+                    return {
+                        "success": False,
+                        "reason": f"General login exception: {e}"
+                    }
+
             except smtplib.SMTPAuthenticationError as e:
-                return {
-                    "success": False,
-                    "reason": f"Bad username or password: {e}"
-                }
+                if len(password) == 0:
+                    self.logger.info("[WARNING] Auth failed. No password provided. Continuing as auth may not be necessary.")
+                else:
+                    return {
+                        "success": False,
+                        "reason": f"Bad username or password: {e}"
+                    }
 
         if body_type == "" or len(body_type) < 3:
             body_type = "html"
 
         # setup the parameters of the message
+        self.logger.info("Pre mime multipart")
         msg = MIMEMultipart()
         msg["From"] = username
+        if len(username) == 0:
+            return {
+                "success": False,
+                "reason": "No username provided (sender). Please provide a username. Required since January 2025."
+            }
+
         msg["To"] = recipient
         msg["Subject"] = subject
         
-        if cc_emails != None and len(cc_emails) > 0:
+        if cc_emails: 
             msg["Cc"] = cc_emails
         
+        self.logger.info("Pre mime check")
         msg.attach(MIMEText(body, body_type))
 
         # Read the attachments
         attachment_count = 0
+        self.logger.info("Pre attachments")
         try:
             if attachments != None and len(attachments) > 0:
                 print("Got attachments: %s" % attachments)
@@ -153,7 +193,7 @@ class Email(AppBase):
         except Exception as e:
             self.logger.info(f"Error in attachment parsing for email: {e}")
 
-
+        self.logger.info(f"Pre send msg: {msg}")
         try:
             s.send_message(msg)
         except smtplib.SMTPDataError as e: 
@@ -161,11 +201,16 @@ class Email(AppBase):
                 "success": False,
                 "reason": f"Failed to send mail: {e}"
             }
+        except Exception as e:
+            return {
+                "success": False,
+                "reason": f"Failed to send mail (2): {e}"
+            }
 
         self.logger.info("Successfully sent email with subject %s to %s" % (subject, recipient))
         return {
             "success": True, 
-            "reason": "Email sent to %s, %s!" %(recipient,cc_emails) if cc_emails else "Email sent to %s!" % recipient,
+            "reason": "Email sent to %s, %s!" % (recipient, cc_emails) if cc_emails else "Email sent to %s!" % recipient,
             "attachments": attachment_count
         }
 
@@ -388,7 +433,22 @@ class Email(AppBase):
                 "messages": json.dumps(emails, default=default),
             }
 
+    def remove_similar_items(self, items):
+        # Sort items by length in descending order
+        items = sorted(items, key=len, reverse=True)
+        result = []
+
+        for domain in items:
+            # Check if the domain is part of any domain already in the result
+            if not any(domain in main for main in result):
+                result.append(domain)
+        
+        return result
+
     def parse_eml(self, filedata, extract_attachments=False):
+        if filedata.startswith("file_"):
+            return self.parse_email_file(filedata, extract_attachments)
+
         parsedfile = {
             "success": True,
             "filename": "email.eml",
@@ -439,16 +499,16 @@ class Email(AppBase):
         # Replace raw newlines \\r\\n with actual newlines
         # The data is a byte string, so we need to decode it to utf-8
         try:
-            print("Pre size: %d" % len(file_path["data"]))
+            #print("Pre size: %d" % len(file_path["data"]))
             file_path["data"] = file_path["data"].decode("utf-8").replace("\\r\\n", "\n").encode("utf-8")
-            print("Post size: %d" % len(file_path["data"]))
+            #print("Post size: %d" % len(file_path["data"]))
         except Exception as e:
             print(f"Failed to decode file: {e}")
             pass
 
         # Makes msg into eml
         if ".msg" in file_path["filename"] or "." not in file_path["filename"]:
-            print(f"[DEBUG] Working with .msg file {file_path['filename']}. Filesize: {len(file_path['data'])}")
+            self.logger.info(f"[DEBUG] Working with .msg file {file_path['filename']}. Filesize: {len(file_path['data'])}")
             try:
                 result = {}
                 msg = MsOxMessage(file_path['data'])
@@ -467,17 +527,17 @@ class Email(AppBase):
         )
 
         try:
-            print("Pre email")
+            self.logger.info("Pre email")
             parsed_eml = ep.decode_email_bytes(file_path['data'])
             #if str(parsed_eml["header"]["date"]) == "1970-01-01 00:00:00+00:00" and len(parsed_eml["header"]["subject"]) == 0:
             #    return {"success":False,"reason":"Not a valid EML/MSG file, or the file have a timestamp or subject defined (required).", "date": str(parsed_eml["header"]["date"]), "subject": str(parsed_eml["header"]["subject"])}
 
             # Put attachments in the shuffle file system
-            print("Pre attachment")
+            self.logger.info("Pre attachment")
             if extract_attachments == True and "attachment" in parsed_eml:
                 cnt = -1 
 
-                print("[INFO] Uploading %d attachments" % len(parsed_eml["attachment"]))
+                self.logger.info("[INFO] Uploading %d attachments" % len(parsed_eml["attachment"]))
                 for value in parsed_eml["attachment"]:
                     cnt += 1
                     if value["raw"] == None:
@@ -498,7 +558,25 @@ class Email(AppBase):
             if not "attachment" in parsed_eml:
                 parsed_eml["attachment"] = []
 
-            print("Post attachment")
+            self.logger.info("Post attachment. Has body: %s" % ("body" in parsed_eml))
+
+            try:
+                if "body" in parsed_eml and len(parsed_eml["body"]) > 0:
+
+                    for i in range(len(parsed_eml["body"])):
+                        if "uri" in parsed_eml["body"][i] and len(parsed_eml["body"][i]["uri"]) > 0:
+                            parsed_eml["body"][i]["uri"] = self.remove_similar_items(parsed_eml["body"][i]["uri"])
+
+                        if "email" in parsed_eml["body"][i] and len(parsed_eml["body"][i]["email"]) > 0:
+                            parsed_eml["body"][i]["email"] = self.remove_similar_items(parsed_eml["body"][i]["email"])
+
+                        if "domain" in parsed_eml["body"][i] and len(parsed_eml["body"][i]["domain"]) > 0:
+                            parsed_eml["body"][i]["domain"] = self.remove_similar_items(parsed_eml["body"][i]["domain"])
+
+            except Exception as e:
+                self.logger.info(f"[ERROR] Failed to remove similar items: {e}")
+
+            parsed_eml["success"] = True
             return json.dumps(parsed_eml, default=json_serial)   
         except Exception as e:
             return {"success":False, "reason": f"An exception occured during EML parsing: {e}. Please contact support"} 

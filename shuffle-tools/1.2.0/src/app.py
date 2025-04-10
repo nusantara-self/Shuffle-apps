@@ -1,14 +1,18 @@
+import os
+import sys
+import builtins
+
 import hmac
 import datetime
 import json
 import time
 import markupsafe
-import os
 import re
 import subprocess
 import tempfile
 import zipfile
 import base64
+import gzip
 import ipaddress
 import hashlib
 from io import StringIO
@@ -37,7 +41,14 @@ import paramiko
 import concurrent.futures
 import multiprocessing
 
-from walkoff_app_sdk.app_base import AppBase
+#from walkoff_app_sdk.app_base import AppBase
+from shuffle_sdk import AppBase
+
+# Override exit(), sys.exit, and os._exit 
+# sys.exit() can be caught, meaning we can have a custom handler for it
+builtins.exit = sys.exit
+os.exit = sys.exit
+os._exit = sys.exit
 
 class Tools(AppBase):
     __version__ = "1.2.0"
@@ -52,6 +63,8 @@ class Tools(AppBase):
         :param logger:
         :param console_logger:
         """
+        self.cache_update_buffer = []
+        self.shared_cache = {}
         super().__init__(redis, logger, console_logger)
 
     def router(self):
@@ -569,7 +582,6 @@ class Tools(AppBase):
                     "message": f"Filename needs to contain .py",
                 }
 
-
         # Write the code to a file
         # 1. Take the data into a file
         # 2. Subprocess execute file?
@@ -582,6 +594,12 @@ class Tools(AppBase):
             # Add globals in it too
             globals_copy = globals().copy()
             globals_copy["print"] = custom_print
+            try:
+                globals_copy["singul"] = self.singul
+                globals_copy["shuffle"] = self.singul
+            except Exception as e:
+                self.logger.info(f"Failed to add singul to python globals: {e}")
+
 
             # Add self to globals_copy
             for key, value in locals().copy().items():
@@ -590,7 +608,27 @@ class Tools(AppBase):
 
             globals_copy["self"] = self
 
-            exec(code, globals_copy)
+            try:
+                exec(code, globals_copy)
+            except SystemExit as e:
+                # Same as a return
+                pass
+            except SyntaxError as e:
+                # Special handler for return usage. Makes return act as 
+                # an exit()
+                if "'return' outside function" in str(e):
+                    return {
+                        "success": False,
+                        "message": f"SyntaxError - Shuffle Recommendation: Instead of using 'return' without a function, use 'exit()' to return when not inside a function. Raw Syntax error: {e}",
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "message": f"Syntax Error: {e}",
+                    }
+
+            # this doesn't work to capture top-level returns
+            # Reason: SyntaxError makes it crash BEFORE it reaches the return
 
             s = f.getvalue()
             f.close() # why: https://www.youtube.com/watch?v=6SA6S9Ca5-U
@@ -619,7 +657,7 @@ class Tools(AppBase):
         except Exception as e:
             return {
                 "success": False,
-                "message": f"exception: {e}",
+                "message": f"Exception: {e}",
             }
 
     def execute_bash(self, code, shuffle_input):
@@ -659,6 +697,52 @@ class Tools(AppBase):
                 return True
 
         return False
+
+    def preload_cache(self, key):
+        org_id = self.full_execution["workflow"]["execution_org"]["id"]
+        url = f"{self.url}/api/v1/orgs/{org_id}/get_cache"
+        data = {
+            "workflow_id": self.full_execution["workflow"]["id"],
+            "execution_id": self.current_execution_id,
+            "authorization": self.authorization,
+            "org_id": org_id,
+            "key": key,
+        }
+        get_response = requests.post(url, json=data, verify=False)
+        response_data = get_response.json()
+        if "value" in response_data:
+            raw_value = response_data["value"]
+            if isinstance(raw_value, str):
+                try:
+                    parsed = json.loads(raw_value)
+                except json.JSONDecodeError:
+                    parsed = [raw_value]
+            else:
+                parsed = raw_value
+
+            if not isinstance(parsed, list):
+                parsed = [parsed]
+
+            response_data["value"] = parsed
+        return get_response.json()
+
+
+    def update_cache(self, key):
+        org_id = self.full_execution["workflow"]["execution_org"]["id"]
+        url = f"{self.url}/api/v1/orgs/{org_id}/set_cache"
+        data = {
+            "workflow_id": self.full_execution["workflow"]["id"],
+            "execution_id": self.current_execution_id,
+            "authorization": self.authorization,
+            "org_id": org_id,
+            "key": key,
+            "value": json.dumps(self.shared_cache["value"]),
+        }
+
+        get_response = requests.post(url, json=data, verify=False)
+        self.cache_update_buffer = []
+        return get_response.json()
+
 
     def filter_list(self, input_list, field, check, value, opposite):
 
@@ -875,11 +959,19 @@ class Tools(AppBase):
                         failed_list.append(item)
 
                 elif check == "in cache key":
+                    if item == input_list[0]:
+                        self.shared_cache = self.preload_cache(key=value)
+
                     ret = self.check_cache_contains(value, tmp, "true")
+
                     if ret["success"] == True and ret["found"] == True:
                         new_list.append(item)
                     else:
                         failed_list.append(item)
+
+                    if len(self.cache_update_buffer) > 400 or (item == input_list[-1] and len(self.cache_update_buffer) > 0):
+                        self.update_cache(value)
+
 
                     #return {
                     #    "success": True,
@@ -930,13 +1022,13 @@ class Tools(AppBase):
             failed_list = tmplist
 
         try:
-            return json.dumps(
-                {
+            data ={
                     "success": True,
                     "valid": new_list,
                     "invalid": failed_list,
                 }
-            )
+
+            return json.dumps(data)
             # new_list = json.dumps(new_list)
         except json.decoder.JSONDecodeError as e:
             return json.dumps(
@@ -1503,7 +1595,7 @@ class Tools(AppBase):
             return {"success": False, "message": "Both input lists need to be valid JSON lists."}
 
         if len(list_one) != len(list_two):
-            return {"success": False, "message": "Lists length must be the same. %d vs %d" % (len(list_one), len(list_two))}
+            return {"success": False, "message": "Lists length must be the same. %d vs %d. Are you trying to add them to a single list? Use add_list_to_list" % (len(list_one), len(list_two))}
 
         if len(sort_key_list_one) > 0:
             try:
@@ -1734,7 +1826,7 @@ class Tools(AppBase):
         result = markupsafe.escape(mapping)
         return mapping
 
-    def check_cache_contains(self, key, value, append):
+    def check_cache_contains(self, key, value, append, category=""):
         org_id = self.full_execution["workflow"]["execution_org"]["id"]
         url = "%s/api/v1/orgs/%s/get_cache" % (self.url, org_id)
         data = {
@@ -1746,6 +1838,10 @@ class Tools(AppBase):
             "key": key,
         }
 
+        if category:
+            data["category"] = category
+
+        directcall = False
         allvalues = {}
         try:
             for item in self.local_storage:
@@ -1765,7 +1861,7 @@ class Tools(AppBase):
                 value = json.dumps(value)
             except Exception as e:
                 pass
-        
+
         if not isinstance(value, str):
             value = str(value)
 
@@ -1777,11 +1873,21 @@ class Tools(AppBase):
             append = False 
 
         if "success" not in allvalues:
-            get_response = requests.post(url, json=data, verify=False)
+            #get_response = requests.post(url, json=data, verify=False)
+            pass
 
         try:
             if "success" not in allvalues:
+                #allvalues = get_response.json()
+                allvalues = self.shared_cache
+
+            if "success" not in allvalues:
+                if category:
+                    data["category"] = category
+
+                get_response = requests.post(url, json=data, verify=False)
                 allvalues = get_response.json()
+                directcall = True
 
             try:
                 if allvalues["value"] == None or allvalues["value"] == "null":
@@ -1793,21 +1899,28 @@ class Tools(AppBase):
                 if append == True:
                     new_value = [str(value)]
                     data["value"] = json.dumps(new_value)
+                    if category:
+                        data["category"] = category
 
                     set_url = "%s/api/v1/orgs/%s/set_cache" % (self.url, org_id)
                     set_response = requests.post(set_url, json=data, verify=False)
                     try:
                         allvalues = set_response.json()
-                        #allvalues["key"] = key
-                        #return allvalues
+                        self.shared_cache = self.preload_cache(key=key)
 
+                        
+                        newvalue = data["value"]
+                        try:
+                            newvalue = json.loads(data["value"])
+                        except json.JSONDecodeError:
+                            pass
 
                         return {
                             "success": True,
                             "found": False,
                             "key": key,
                             "search": value,
-                            "value": new_value,
+                            "value": newvalue,
                         }
                     except Exception as e:
                         return {
@@ -1829,19 +1942,26 @@ class Tools(AppBase):
                 if allvalues["value"] == None or allvalues["value"] == "null":
                     allvalues["value"] = "[]"
 
-                allvalues["value"] = str(allvalues["value"])
+                if isinstance(allvalues["value"], str):
+                    try:
+                        allvalues["value"] = json.loads(allvalues["value"])
+                    except json.JSONDecodeError:
+                        self.logger.info("[WARNING] Failed inner value cache parsing")
+                        allvalues["value"] = [allvalues["value"]]
+
+                if not isinstance(allvalues["value"], list):
+                    allvalues["value"] = [allvalues["value"]]
 
                 try:
-                    parsedvalue = json.loads(allvalues["value"])
+                    parsedvalue = json.loads(str(allvalues["value"]))
                 except json.decoder.JSONDecodeError as e:
-                    parsedvalue = [str(allvalues["value"])]
-                except Exception as e:
-                    parsedvalue = [str(allvalues["value"])]
+                    parsedvalue = allvalues["value"]
 
                 try:
                     for item in parsedvalue:
                         #return "%s %s" % (item, value)
-                        if item == value:
+                        #self.logger.info(f"{item} == {value}")
+                        if str(item) == str(value):
                             if not append:
                                 try:
                                     newdata = json.loads(json.dumps(data))
@@ -1857,7 +1977,7 @@ class Tools(AppBase):
                                     "reason": "Found and not appending!",
                                     "key": key,
                                     "search": value,
-                                    "value": json.loads(allvalues["value"]),
+                                    "value": allvalues["value"],
                                 }
                             else:
                                 return {
@@ -1866,10 +1986,10 @@ class Tools(AppBase):
                                     "reason": "Found, was appending, but item already exists",
                                     "key": key,
                                     "search": value,
-                                    "value": json.loads(allvalues["value"]),
+                                    "value": allvalues["value"],
                                 }
-                                
-                            # Lol    
+
+                            # Lol
                             break
                 except Exception as e:
                     parsedvalue = [str(parsedvalue)]
@@ -1882,30 +2002,46 @@ class Tools(AppBase):
                         "reason": "Not found, not appending (2)!",
                         "key": key,
                         "search": value,
-                        "value": json.loads(allvalues["value"]),
+                        "value": allvalues["value"],
                     }
 
-                new_value = parsedvalue
-                if new_value == None:
-                    new_value = [value]
+                #parsedvalue.append(value)
 
-                new_value.append(value)
-                data["value"] = json.dumps(new_value)
+                #data["value"] = json.dumps(parsedvalue)
 
-                set_url = "%s/api/v1/orgs/%s/set_cache" % (self.url, org_id)
-                response = requests.post(set_url, json=data, verify=False)
+                if value not in allvalues["value"] and isinstance(allvalues["value"], list):
+                    self.cache_update_buffer.append(value)
+                    allvalues["value"].append(value)
+
                 exception = ""
                 try:
-                    allvalues = response.json()
-                    #return allvalues
+                    # FIXME: This is a hack, but it works
+                    if directcall:
+                        new_value = allvalues["value"]
+                        if new_value == None:
+                            new_value = [value]
+
+                        data["value"] = json.dumps(new_value)
+                        if category:
+                            data["category"] = category
+
+                        set_url = "%s/api/v1/orgs/%s/set_cache" % (self.url, org_id)
+                        response = requests.post(set_url, json=data, verify=False)
+                        allvalues = response.json()
+
+                    newvalue = data["value"]
+                    try:
+                        newvalue = json.loads(data["value"])
+                    except:
+                        pass
 
                     return {
                         "success": True,
                         "found": False,
-                        "reason": "Appended as it didn't exist",
+                        "reason": f"Appended as it didn't exist",
                         "key": key,
                         "search": value,
-                        "value": new_value,
+                        "value": newvalue,
                     }
                 except Exception as e:
                     exception = e
@@ -1942,7 +2078,7 @@ class Tools(AppBase):
     ## subkey = "hi", value = "test3", overwrite=False
     ## {"subkey": "hi", "value": ["test2", "test3"]}
 
-    def change_cache_subkey(self, key, subkey, value, overwrite):
+    def change_cache_subkey(self, key, subkey, value, overwrite, category=""):
         org_id = self.full_execution["workflow"]["execution_org"]["id"]
         url = "%s/api/v1/orgs/%s/set_cache" % (self.url, org_id)
 
@@ -1964,6 +2100,9 @@ class Tools(AppBase):
             "value": value,
         }
 
+        if category:
+            data["category"] = category
+
         response = requests.post(url, json=data, verify=False)
         try:
             allvalues = response.json()
@@ -1984,10 +2123,10 @@ class Tools(AppBase):
             self.logger.info("Value couldn't be parsed")
             return response.text
 
-    def delete_cache_value(self, key):
-        return self.delete_cache(key)
+    def delete_cache_value(self, key, category=""):
+        return self.delete_cache(key, category=category)
 
-    def get_cache_value(self, key):
+    def get_cache_value(self, key, category=""):
         org_id = self.full_execution["workflow"]["execution_org"]["id"]
         url = "%s/api/v1/orgs/%s/get_cache" % (self.url, org_id)
         data = {
@@ -1997,6 +2136,9 @@ class Tools(AppBase):
             "org_id": org_id,
             "key": key,
         }
+
+        if category:
+            data["category"] = category
 
         value = requests.post(url, json=data, verify=False)
         try:
@@ -2021,7 +2163,7 @@ class Tools(AppBase):
             self.logger.info("Value couldn't be parsed, or json dump of value failed")
             return value.text
 
-    def set_cache_value(self, key, value):
+    def set_cache_value(self, key, value, category=""):
         org_id = self.full_execution["workflow"]["execution_org"]["id"]
         url = "%s/api/v1/orgs/%s/set_cache" % (self.url, org_id)
 
@@ -2043,6 +2185,9 @@ class Tools(AppBase):
             "value": value,
         }
 
+        if category:
+            data["category"] = category
+
         response = requests.post(url, json=data, verify=False)
         try:
             allvalues = response.json()
@@ -2057,6 +2202,9 @@ class Tools(AppBase):
                     allvalues["value"] = str(value)
             else:
                 allvalues["value"] = str(value)
+
+            if category:
+                allvalues["category"] = category
 
             return json.dumps(allvalues)
         except:
@@ -2102,8 +2250,17 @@ class Tools(AppBase):
 
         return fullstring
 
-    def cidr_ip_match(self, ip, networks):
+    def autofix_network(self, ip_with_cidr):
+        try:
+            # Parse the input as an IPv4 network object
+            network = ipaddress.IPv4Network(ip_with_cidr, strict=False)
+            # Return the corrected network address
+            return str(network)
+        except ValueError as e:
+            print(f"Error: {e}")
+            return None
 
+    def cidr_ip_match(self, ip, networks):
         if isinstance(networks, str):
             try:
                 networks = json.loads(networks)
@@ -2113,9 +2270,18 @@ class Tools(AppBase):
                     "reason": "Networks is not a valid list: {}".format(networks),
                 }
 
+        new_networks = []
+        for network in networks:
+            new_network = self.autofix_network(network)
+            if new_network:
+                new_networks.append(new_network)
+
+        networks = new_networks
+
         try:
             ip_networks = list(map(ipaddress.ip_network, networks))
-            ip_address = ipaddress.ip_address(ip, False)
+            #ip_address = ipaddress.ip_address(ip, False)
+            ip_address = ipaddress.ip_address(ip)
         except ValueError as e:
             return "IP or some networks are not in valid format.\nError: {}".format(e)
 
@@ -2411,7 +2577,7 @@ class Tools(AppBase):
             "changed_fields": important_fields,
         }
 
-    def generate_random_string(length=16, special_characters=True):
+    def generate_random_string(self, length=16, special_characters=True):
         try:
             length = int(length)
         except:
@@ -2471,14 +2637,40 @@ class Tools(AppBase):
 
         return {"success":"true","output": stdout.read().decode(errors='ignore')}
 
+    def cleanup_ioc_data(self, input_data):
+        # Remove unecessary parts like { and }, quotes etc
+        input_data = str(input_data)
+        input_data = input_data.replace("{", "")
+        input_data = input_data.replace("}", "")
+        input_data = input_data.replace("\"", "")
+        input_data = input_data.replace("'", "")
+
+        input_data = input_data.replace("\t", " ")
+        input_data = input_data.replace("  ", " ")
+        input_data = input_data.replace("\n\n", "\n")
+
+        # Remove html tags 
+        input_data = re.sub(r'<[^>]*>', '', input_data)
+
+        return input_data
+
+
     def parse_ioc(self, input_string, input_type="all"):
-        ioc_types = ["domains", "urls", "email_addresses", "ipv4s", "ipv4_cidrs", "md5s", "sha256s", "sha1s", "cves"]
+        ioc_types = ["domains", "urls", "email_addresses", "ipv4s", "ipv6s", "ipv4_cidrs", "md5s", "sha256s", "sha1s", "cves"]
+        #ioc_types = ["ipv4s"]
+
+        try:
+            input_string = self.cleanup_ioc_data(input_string)
+        except Exception as e:
+            self.logger.info("[ERROR] Failed to cleanup ioc data: %s" % e)
 
         # Remember overriding ioc types we care about
         if input_type == "" or input_type == "all":
             input_type = "all"
         else:
             input_type = input_type.split(",")
+
+            new_input_types = []
             for i in range(len(input_type)):
                 item = input_type[i]
 
@@ -2486,39 +2678,61 @@ class Tools(AppBase):
                 if not item.endswith("s"):
                     item = "%ss" % item
 
-                input_type[i] = item
+                if item not in ioc_types:
+                    continue
 
-            ioc_types = input_type
+                new_input_types.append(item)
 
-        iocs = find_iocs(str(input_string), included_ioc_types=ioc_types)
+            ioc_types = new_input_types 
+            if len(ioc_types) == 0:
+                input_type = "all"
+
+        # Not used for anything after cleanup fixes
+        max_size = 7500000 
+        #if len(input_string) > max_size:
+        #    input_string = input_string[:max_size]
+
+        self.logger.info("[DEBUG] Parsing data of length %d with types %s. Max size: %d" % (len(input_string), ioc_types, max_size))
+        self.logger.info(f"STRING: {input_string}")
+
+        #iocs = find_iocs(str(input_string), included_ioc_types=ioc_types)
+        iocs = find_iocs(str(input_string))
+        #self.logger.info("[DEBUG] Found %d ioc types" % len(iocs))
+
         newarray = []
         for key, value in iocs.items():
             if input_type != "all":
                 if key not in input_type:
+                    print("Invalid key: %s" % key)
                     continue
 
-            if len(value) > 0:
-                for item in value:
-                    # If in here: attack techniques. Shouldn't be 3 levels so no
-                    # recursion necessary
-                    if isinstance(value, dict):
-                        for subkey, subvalue in value.items():
-                            if len(subvalue) > 0:
-                                for subitem in subvalue:
-                                    data = {
-                                        "data": subitem,
-                                        "data_type": "%s_%s" % (key[:-1], subkey),
-                                    }
-                                    if data not in newarray:
-                                        newarray.append(data)
-                    else:
-                        data = {"data": item, "data_type": key[:-1]}
-                        if data not in newarray:
-                            newarray.append(data)
+            print(key, value)
+            if len(value) == 0:
+                continue
+
+            for item in value:
+                # If in here: attack techniques. Shouldn't be 3 levels so no
+                # recursion necessary
+                if isinstance(value, dict):
+                    for subkey, subvalue in value.items():
+                        if len(subvalue) > 0:
+                            for subitem in subvalue:
+                                data = {
+                                    "data": subitem,
+                                    "data_type": "%s_%s" % (key[:-1], subkey),
+                                }
+                                if data not in newarray:
+                                    newarray.append(data)
+                else:
+                    data = {"data": item, "data_type": key[:-1]}
+                    if data not in newarray:
+                        newarray.append(data)
 
         # Reformatting IP
         for item in newarray:
-            if "ip" in item["data_type"]:
+            if "cidr" in item["data_type"]:
+                pass
+            elif "ip" in item["data_type"]:
                 item["data_type"] = "ip"
                 try:
                     item["is_private_ip"] = ipaddress.ip_address(item["data"]).is_private
@@ -2750,6 +2964,9 @@ class Tools(AppBase):
 
         return results
 
+    def bodyparse_test(self, body):
+        return body
+
     def list_cidr_ips(self, cidr):
         defaultreturn = {
             "success": False,
@@ -2787,7 +3004,32 @@ class Tools(AppBase):
         }
 
         return returnvalue
-    
+
+    def switch(self, conditions):
+        # Check if conditions is a list or not
+        if not isinstance(conditions, list):
+            conditions = [conditions]
+
+        # True by default
+        to_return = {
+            "success": True,
+            "run_else": True,
+        }
+
+        if len(conditions) == 0:
+            conditions = []
+
+        for condition in conditions:
+            pass
+
+        # Loop conditions
+        # Return them without a loop to make it EASY to understand
+        # Validation should be: 
+        # Continuation based on .id.valid
+        # .valid -> true/false
+        # If no id exists, use name?
+
+        return to_return
 
 if __name__ == "__main__":
     Tools.run()

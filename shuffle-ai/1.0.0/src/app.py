@@ -1,11 +1,93 @@
+import os
 import json
-import PyPDF2
 import tempfile
 import requests
-import pytesseract
-from pdf2image import convert_from_path
 
-from walkoff_app_sdk.app_base import AppBase
+try:
+    import pytesseract
+except Exception as e:
+    print("Skipping pytesseract import: %s" % e)
+
+try:
+    import PyPDF2
+except Exception as e:
+    print("Skipping PyPDF2 import: %s" % e)
+
+try:
+    from pdf2image import convert_from_path
+except Exception as e:
+    print("Skipping pdf2image import: %s" % e)
+
+
+try:
+    import llama_cpp 
+except Exception as e:
+    print("Skipping llama_cpp import: %s" % e)
+
+print("LD Library: '%s'" % os.environ.get("LD_LIBRARY_PATH", ""))
+
+from shuffle_sdk import AppBase
+
+#model = "/models/Llama-3.2-3B.Q8_0.gguf" # Larger 
+#model = "/models/Llama-3.2-3B.Q2_K.gguf" # Smol
+
+#model = "/models/DeepSeek-R1-Distill-Llama-8B-Q2_K.gguf" # Smaller
+#model = "/models/Meta-Llama-3-8B.Q6_K.gguf"
+model = "/models/DeepSeek-R1-Distill-Llama.gguf"
+if os.getenv("MODEL_PATH"):
+    model = os.getenv("MODEL_PATH")
+
+def load_llm_model(model):
+    print("Using model path '%s'" % model)
+    if not os.path.exists(model):
+        print("Could not find model at path %s" % model)
+        model_name = model.split("/")[-1]
+        # Check $HOME/downloads/{model}
+
+        home_path = os.path.expanduser("~")
+        print(home_path)
+
+        if os.path.exists(f"{home_path}/downloads/{model_name}"):
+            model = f"{home_path}/downloads/{model_name}"
+        else:
+            return {
+                "success": False,
+                "reason": "Model not found at path %s" % model,
+                "details": "Ensure the model path is correct"
+            }
+
+    # Check for GPU layers
+    innerllm = None
+    gpu_layers = os.getenv("GPU_LAYERS")
+    if gpu_layers:
+        print("GPU Layers: %s" % gpu_layers)
+
+        gpu_layers = int(gpu_layers)
+        if gpu_layers > 0:
+            innerllm = llama_cpp.Llama(model_path=model, n_gpu_layers=gpu_layers)
+        else:
+            innerllm = llama_cpp.Llama(model_path=model, n_gpu_layers=8)
+    else:
+        # Check if GPU available
+        print("No GPU layers set.")
+        #innerllm = llama_cpp.Llama(model_path=model)
+
+        return {
+            "success": False,
+            "reason": "GPU layers not set",
+            "details": "Set GPU_LAYERS environment variable to the number of GPU layers to use (e.g. 8)."
+        }
+
+    return innerllm
+
+try:
+    llm = load_llm_model(model)
+except Exception as e:
+    print("[ERROR] Failed to load LLM model: %s" % e)
+    llm = {
+        "success": False,
+        "reason": "Failed to load LLM model %s" % model,
+    }
 
 class Tools(AppBase):
     __version__ = "1.0.0"
@@ -13,6 +95,120 @@ class Tools(AppBase):
 
     def __init__(self, redis, logger, console_logger=None):
         super().__init__(redis, logger, console_logger)
+
+    def run_llm(self, input, system_message=""):
+        global llm
+        global model
+
+        self.logger.info("[DEBUG] LD LIbrary: '%s'. If this is empty, GPU's may not work." % os.environ.get("LD_LIBRARY_PATH", ""))
+
+        if not system_message:
+            system_message = "Answer their question directly. Don't use HTML or Markdown",
+
+        self.logger.info("[DEBUG] Running LLM with model '%s'. To overwrite path, use environment variable MODEL_PATH=<path>" % model)
+
+        # Check if llm is a dict or not and look for success and reason in it
+        if not llm:
+            return {
+                "success": False,
+                "reason": "LLM model not loaded",
+                "details": "Ensure the LLM model is loaded",
+                "gpu_layers": os.getenv("GPU_LAYERS"),
+            }
+
+        if isinstance(llm, dict):
+            if "success" in llm and not llm["success"]:
+                # List files in /model folder
+                llm["folder"] = os.listdir("/models")
+                llm["gpu_layers"] = os.getenv("GPU_LAYERS")
+                return llm
+
+        self.logger.info("[DEBUG] Running LLM with input '%s' and system message '%s'. GPU Layers: %s" % (input, system_message, os.getenv("GPU_LAYERS")))
+
+        # https://github.com/abetlen/llama-cpp-python 
+        try:
+            print("LLM: ", llm)
+
+            self.logger.info("[DEBUG] LLM: %s" % llm)
+            output = llm.create_chat_completion(
+                max_tokens=100,
+                messages = [
+                    {
+                        "role": "system",
+                        "content": system_message,
+                    },
+                    {
+                        "role": "user",
+                        "content": input,
+                    }
+                ]
+            )
+        except Exception as e:
+            return {
+                "success": False,
+                "reason": f"Failed to run local LLM. Check logs in this execution for more info: {self.current_execution_id}",
+                "details": f"{e}"
+            }
+
+        self.logger.info("[DEBUG] LLM output: %s" % output)
+
+        new_message = ""
+        if "choices" in output and len(output["choices"]) > 0:
+            new_message = output["choices"][0]["message"]["content"]
+
+        parsed_output = {
+            "success": True,
+            "model": output["model"],
+            "output": new_message,
+        }
+
+        if "tokens" in output:
+            parsed_output["tokens"] = output["tokens"]
+
+        if "usage" in output:
+            parsed_output["tokens"] = output["usage"]
+
+        if not os.getenv("GPU_LAYERS"):
+            parsed_output["debug"] = "GPU_LAYERS not set. Running on CPU. Set GPU_LAYERS to the number of GPU layers to use (e.g. 8)."
+
+        return parsed_output
+
+    def security_assistant(self):
+        # Currently testing outside the Shuffle environment
+        # using assistants and local LLMs
+
+        return "Not implemented"
+
+    def shuffle_cloud_inference(self, apikey, text, formatting="auto"):
+        headers = {
+            "Authorization": "Bearer %s" % apikey,
+        }
+
+        if not formatting:
+            formatting = "auto"
+    
+        output_formatting= "Format the following data to be a good email that can be sent to customers. Don't make it too business sounding."
+        if formatting != "auto":
+            output_formatting = formatting
+    
+        ret = requests.post(
+            "https://shuffler.io/api/v1/conversation", 
+            json={
+                "query": text, 
+                "formatting": output_formatting,
+                "output_format": "formatting"
+            },
+            headers=headers,
+        )
+    
+        if ret.status_code != 200:
+            print(ret.text)
+            return {
+                "success": False,
+                "reason": "Status code for auto-formatter is not 200"
+            }
+    
+        return ret.text
 
     def autoformat_text(self, apikey, text, formatting="auto"):
         headers = {
@@ -135,6 +331,11 @@ class Tools(AppBase):
             "reason": "Something failed in reading and parsing the pdf. See error logs for more info",
         }
 
+        # Check type of pdf_data["data"]
+        if not isinstance(pdf_data["data"], bytes):
+            self.logger.info("Encoding data to bytes for the bytestream reader")
+            pdf_data["data"] = pdf_data["data"].encode()
+
         # Make a tempfile for the file data from self.get_file
         # Make a tempfile with tempfile library
         with tempfile.NamedTemporaryFile() as temp:
@@ -162,12 +363,24 @@ class Tools(AppBase):
 
     def extract_text_from_image(self, file_id):
         # Check if it's a pdf
-        # If it is, use extract_text_from_pdf
-        # If it's not, use pytesseract
-        if self.get_file(file_id)["name"].endswith(".pdf"):
-            return self.extract_text_from_pdf(file_id)
 
         pdf_data = self.get_file(file_id)
+        if "filename" not in pdf_data:
+            available_fields = []
+            for key, value in pdf_data.items():
+                available_fields.append(key)
+
+            return {
+                "success": False,
+                "reason": "File not found",
+                "details": f"Available fields: {available_fields}",
+            }
+
+        # If it is, use extract_text_from_pdf
+        # If it's not, use pytesseract
+        if pdf_data["filename"].endswith(".pdf"):
+            return self.extract_text_from_pdf(file_id)
+
         defaultdata = {
             "success": False,
             "file_id": file_id,

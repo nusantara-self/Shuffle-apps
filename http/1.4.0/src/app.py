@@ -8,10 +8,10 @@ import asyncio
 import requests
 import subprocess
 
-from walkoff_app_sdk.app_base import AppBase
+from shuffle_sdk import AppBase
 
 class HTTP(AppBase):
-    __version__ = "1.3.0"
+    __version__ = "1.4.0"
     app_name = "http"  
 
     def __init__(self, redis, logger, console_logger=None):
@@ -174,7 +174,8 @@ class HTTP(AppBase):
         parsed_headers = self.splitheaders(headers)
         parsed_headers["User-Agent"] = "Shuffle Automation"
         verify = self.checkverify(verify)
-        proxies = None
+
+        proxies = {}
         if http_proxy: 
             proxies["http"] = http_proxy
         if https_proxy: 
@@ -212,7 +213,7 @@ class HTTP(AppBase):
         parsed_headers["User-Agent"] = "Shuffle Automation"
         verify = self.checkverify(verify)
         body = self.checkbody(body)
-        proxies = None
+        proxies = {} 
         if http_proxy: 
             proxies["http"] = http_proxy
         if https_proxy: 
@@ -250,7 +251,7 @@ class HTTP(AppBase):
         parsed_headers["User-Agent"] = "Shuffle Automation"
         verify = self.checkverify(verify)
         body = self.checkbody(body)
-        proxies = None
+        proxies = {}
         if http_proxy: 
             proxies["http"] = http_proxy
         if https_proxy: 
@@ -289,7 +290,7 @@ class HTTP(AppBase):
         parsed_headers["User-Agent"] = "Shuffle Automation"
         verify = self.checkverify(verify)
         body = self.checkbody(body)
-        proxies = None
+        proxies = {}
         if http_proxy: 
             proxies["http"] = http_proxy
         if https_proxy: 
@@ -327,7 +328,7 @@ class HTTP(AppBase):
         parsed_headers["User-Agent"] = "Shuffle Automation"
         verify = self.checkverify(verify)
         body = self.checkbody(body)
-        proxies = None
+        proxies = {}
         if http_proxy: 
             proxies["http"] = http_proxy
         if https_proxy: 
@@ -365,7 +366,7 @@ class HTTP(AppBase):
         parsed_headers["User-Agent"] = "Shuffle Automation"
         verify = self.checkverify(verify)
         body = self.checkbody(body)
-        proxies = None
+        proxies = {}
         if http_proxy: 
             proxies["http"] = http_proxy
         if https_proxy: 
@@ -403,7 +404,7 @@ class HTTP(AppBase):
         parsed_headers["User-Agent"] = "Shuffle Automation"
         verify = self.checkverify(verify)
         body = self.checkbody(body)
-        proxies = None
+        proxies = {}
         if http_proxy: 
             proxies["http"] = http_proxy
         if https_proxy: 
@@ -438,10 +439,7 @@ class HTTP(AppBase):
 
 # Run the actual thing after we've checked params
 def run(request):
-    print("Starting cloud!")
     action = request.get_json() 
-    print(action)
-    print(type(action))
     authorization_key = action.get("authorization")
     current_execution_id = action.get("execution_id")
 	

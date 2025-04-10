@@ -65,10 +65,12 @@ class Subflow(AppBase):
             frontend_url = "https://shuffler.io"
         if "ngrok" in frontend_url:
             frontend_url = ""
+        if "shuffle-backend" in frontend_url:
+            frontend_url = ""
 
-        explore_path = "%s/workflows/%s/run?authorization=%s&reference_execution=%s&source_node=%s" % (frontend_url, self.full_execution["workflow"]["id"], self.full_execution["authorization"], self.full_execution["execution_id"], source_node)
-        frontend_continue_url = "%s/workflows/%s/run?authorization=%s&reference_execution=%s&answer=true&source_node=%s" % (frontend_url, self.full_execution["workflow"]["id"], self.full_execution["authorization"], self.full_execution["execution_id"], source_node)
-        frontend_abort_url = "%s/workflows/%s/run?authorization=%s&reference_execution=%s&answer=false&source_node=%s" % (frontend_url, self.full_execution["workflow"]["id"], self.full_execution["authorization"], self.full_execution["execution_id"], source_node)
+        explore_path = "%s/forms/%s?authorization=%s&reference_execution=%s&source_node=%s" % (frontend_url, self.full_execution["workflow"]["id"], self.full_execution["authorization"], self.full_execution["execution_id"], source_node)
+        frontend_continue_url = "%s/forms/%s?authorization=%s&reference_execution=%s&answer=true&source_node=%s" % (frontend_url, self.full_execution["workflow"]["id"], self.full_execution["authorization"], self.full_execution["execution_id"], source_node)
+        frontend_abort_url = "%s/forms/%s?authorization=%s&reference_execution=%s&answer=false&source_node=%s" % (frontend_url, self.full_execution["workflow"]["id"], self.full_execution["authorization"], self.full_execution["execution_id"], source_node)
         api_continue_url = "%s/api/v1/workflows/%s/execute?authorization=%s&reference_execution=%s&answer=true&source_node=%s" % (frontend_url, self.full_execution["workflow"]["id"], self.full_execution["authorization"], self.full_execution["execution_id"], source_node)
         api_abort_url = "%s/api/v1/workflows/%s/execute?authorization=%s&reference_execution=%s&answer=false&source_node=%s" % (frontend_url, self.full_execution["workflow"]["id"], self.full_execution["authorization"], self.full_execution["execution_id"], source_node)
 
