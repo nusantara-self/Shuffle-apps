@@ -80,9 +80,14 @@ class Email(AppBase):
             "subject": subject, 
             "type": "alert", 
             "email_app": True,
+            "reference_execution": self.current_execution_id,
         }
-
+        
         url = "https://shuffler.io/functions/sendmail"
+        
+        if apikey.strip() == "" and self.authorization != "standalone":
+            apikey = self.authorization
+        
         headers = {"Authorization": "Bearer %s" % apikey}
         return requests.post(url, headers=headers, json=data).text
 
@@ -382,7 +387,11 @@ class Email(AppBase):
                 output_dict["imap_id"] = id_list[i]
 
                 # Add message-id as top returned field
-                output_dict["message_id"] = parsed_eml["header"]["header"]["message-id"][0]
+                try:
+                    output_dict["message_id"] = parsed_eml["header"]["header"]["message-id"][0]
+                except Exception as _:
+                    output_dict["message_id"] = ""
+
 
                 if upload_email_shuffle:
                     self.logger.info("Uploading email to shuffle")
